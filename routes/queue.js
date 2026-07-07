@@ -20,6 +20,118 @@ async function getBranchBySlug(orgSlug, branchSlug) {
   return rows[0] || null;
 }
 
+async function getBranchByPosId(posBranchId) {
+  const rows = await executeQuery(
+    `SELECT b.*, o.name AS org_name, o.slug AS org_slug
+     FROM qms_branches b
+     JOIN qms_organizations o ON o.id = b.org_id
+     WHERE b.pos_branch_id = ? AND b.is_active = 1 AND o.is_active = 1
+     LIMIT 1`,
+    [posBranchId]
+  );
+  return rows[0] || null;
+}
+
+async function getDefaultService(branchId) {
+  const rows = await executeQuery(
+    'SELECT * FROM qms_service_types WHERE branch_id = ? AND is_active = 1 ORDER BY display_order, id LIMIT 1',
+    [branchId]
+  );
+  return rows[0] || null;
+}
+
+// Resolve QMS branch from POS branch id (public — used by POS frontend)
+router.get('/resolve', async (req, res) => {
+  try {
+    const posBranchId = req.query.posBranchId ? parseInt(req.query.posBranchId, 10) : null;
+    let branch = posBranchId ? await getBranchByPosId(posBranchId) : null;
+
+    if (!branch) {
+      const fallback = await executeQuery(
+        `SELECT b.*, o.name AS org_name, o.slug AS org_slug
+         FROM qms_branches b JOIN qms_organizations o ON o.id = b.org_id
+         WHERE b.is_active = 1 AND o.is_active = 1 ORDER BY b.id LIMIT 1`
+      );
+      branch = fallback[0] || null;
+    }
+
+    if (!branch) {
+      return res.status(404).json({ success: false, message: 'No queue branch configured' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        qmsBranchId: branch.id,
+        orgSlug: branch.org_slug,
+        branchSlug: branch.slug,
+        branchName: branch.name,
+        posBranchId: branch.pos_branch_id,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── Simple token: plain number 28, 29, 30 … (logo slip only, no service pick) ──
+router.post('/public/:orgSlug/:branchSlug/token', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
+    if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
+
+    const service = await getDefaultService(branch.id);
+    if (!service) {
+      return res.status(400).json({ success: false, message: 'No queue service configured for this branch' });
+    }
+
+    const dateKey = todayKey();
+
+    await conn.beginTransaction();
+
+    await conn.execute(
+      `INSERT INTO qms_daily_sequences (branch_id, service_type_id, date_key, last_number)
+       VALUES (?, ?, ?, 1)
+       ON DUPLICATE KEY UPDATE last_number = last_number + 1`,
+      [branch.id, service.id, dateKey]
+    );
+
+    const [seqRows] = await conn.execute(
+      'SELECT last_number FROM qms_daily_sequences WHERE branch_id = ? AND service_type_id = ? AND date_key = ?',
+      [branch.id, service.id, dateKey]
+    );
+    const ticketNumber = seqRows[0].last_number;
+    const ticketCode = String(ticketNumber);
+
+    const [insertResult] = await conn.execute(
+      `INSERT INTO qms_tickets
+        (branch_id, service_type_id, ticket_number, ticket_code, date_key)
+       VALUES (?, ?, ?, ?, ?)`,
+      [branch.id, service.id, ticketNumber, ticketCode, dateKey]
+    );
+
+    await conn.commit();
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: insertResult.insertId,
+        ticket_code: ticketCode,
+        ticket_number: ticketNumber,
+        branch_name: branch.name,
+        issued_at: new Date().toISOString(),
+        date_key: dateKey,
+      },
+    });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // ── Public: branch info + services (kiosk/display) ──────────
 router.get('/public/:orgSlug/:branchSlug', async (req, res) => {
   try {

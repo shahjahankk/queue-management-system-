@@ -24,7 +24,12 @@ app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  origin: (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean).length
+    ? (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim())
+    : true,
+  credentials: true,
+}));
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
@@ -35,6 +40,7 @@ const ticketLimiter = rateLimit({
   message: { success: false, message: 'Too many ticket requests, please wait' },
 });
 app.use('/api/queue/public/:orgSlug/:branchSlug/tickets', ticketLimiter);
+app.use('/api/queue/public/:orgSlug/:branchSlug/token', ticketLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
