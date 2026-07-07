@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PetZone - Queue Display</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="display-screen">
+  <div class="display-header">
+    <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo-lg" style="filter: brightness(0) invert(1);">
+    <div style="text-align: center;">
+      <h1 id="branchName" style="font-size: 32px;">PetZone Clinic</h1>
+      <p id="orgName" style="opacity: 0.7;"></p>
+    </div>
+    <div class="clock" id="clock"></div>
+  </div>
+
+  <h2 style="font-size: 28px; margin-bottom: 20px; opacity: 0.9;">Now Serving</h2>
+  <div id="nowServing" class="now-serving-grid">
+    <div class="now-serving-card pulse">
+      <div style="font-size: 18px; opacity: 0.7; margin-bottom: 8px;">Waiting for next patient...</div>
+      <div class="number">—</div>
+    </div>
+  </div>
+
+  <div class="waiting-panel">
+    <h2 style="font-size: 24px; margin-bottom: 16px;">Waiting Queue</h2>
+    <div id="waitingList"></div>
+  </div>
+
+  <script>
+    const parts = location.pathname.split('/').filter(Boolean);
+    const orgSlug = parts[1] || 'petzone';
+    const branchSlug = parts[2] || 'main';
+
+    function updateClock() {
+      document.getElementById('clock').textContent = new Date().toLocaleTimeString([], {
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/status`);
+        const json = await res.json();
+        if (!json.success) return;
+
+        const d = json.data;
+        document.getElementById('branchName').textContent = d.branch.name;
+        document.getElementById('orgName').textContent = d.branch.org_name;
+
+        const serving = d.now_serving;
+        const servingEl = document.getElementById('nowServing');
+
+        if (serving.length === 0) {
+          servingEl.innerHTML = `
+            <div class="now-serving-card pulse">
+              <div style="font-size: 18px; opacity: 0.7; margin-bottom: 8px;">Please wait</div>
+              <div class="number">—</div>
+            </div>`;
+        } else {
+          servingEl.innerHTML = serving.map(s => `
+            <div class="now-serving-card">
+              <div style="font-size: 16px; opacity: 0.7;">${s.service_name}</div>
+              <div class="number">${s.ticket_code}</div>
+              <div class="counter">${s.counter_name || 'Please proceed to counter'}</div>
+            </div>
+          `).join('');
+        }
+
+        document.getElementById('waitingList').innerHTML = d.waiting_by_service.map(w => `
+          <div class="waiting-row">
+            <span>${w.name} <span style="opacity:0.5;">(${w.waiting_count} waiting)</span></span>
+            <span class="next-num">${w.next_ticket || '—'}</span>
+          </div>
+        `).join('');
+      } catch (e) { /* silent refresh */ }
+    }
+
+    updateClock();
+    setInterval(updateClock, 1000);
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

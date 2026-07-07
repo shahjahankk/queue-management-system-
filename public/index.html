@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PetZone Queue Management</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo-lg">
+    <nav>
+      <a href="/admin" class="btn btn-outline btn-sm">Admin Login</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <section class="hero">
+      <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo-xl">
+      <h1>Pet Clinic Queue System</h1>
+      <p>Smart queue management for PetZone clinics. Issue number slips, manage counters, and display live queue status on TV screens.</p>
+    </section>
+
+    <div class="link-cards">
+      <a href="/kiosk/petzone/main" class="link-card">
+        <div class="icon">🎫</div>
+        <h3>Take a Ticket</h3>
+        <p>Kiosk screen for pet owners to get a queue number</p>
+      </a>
+      <a href="/display/petzone/main" class="link-card">
+        <div class="icon">📺</div>
+        <h3>Live Display</h3>
+        <p>TV screen showing now serving and waiting queue</p>
+      </a>
+      <a href="/counter/petzone/main" class="link-card">
+        <div class="icon">🩺</div>
+        <h3>Staff Counter</h3>
+        <p>Call next ticket, complete or skip patients</p>
+      </a>
+      <a href="/admin" class="link-card">
+        <div class="icon">⚙️</div>
+        <h3>Admin Panel</h3>
+        <p>Manage branches, services, users (SaaS)</p>
+      </a>
+    </div>
+
+    <div class="card" style="margin-top: 40px; text-align: center;">
+      <h3 style="color: var(--blue); margin-bottom: 12px;">Quick Links by Branch</h3>
+      <p style="color: var(--gray-500); margin-bottom: 16px;">Replace <code>petzone/main</code> with your org/branch slug</p>
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+        <a href="/kiosk/petzone/main" class="btn btn-pink btn-sm">Main Clinic Kiosk</a>
+        <a href="/kiosk/petzone/north" class="btn btn-pink btn-sm">North Branch Kiosk</a>
+        <a href="/display/petzone/main" class="btn btn-outline btn-sm">Main Display</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

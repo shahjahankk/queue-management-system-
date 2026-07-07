@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PetZone Kiosk - Take a Ticket</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="header no-print">
+    <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo-lg">
+    <div>
+      <h2 id="branchTitle" style="color: var(--blue);">Loading...</h2>
+      <p id="branchAddress" style="color: var(--gray-500); font-size: 14px;"></p>
+    </div>
+  </header>
+
+  <div class="container no-print">
+    <div id="alert" class="alert hidden"></div>
+
+    <div id="stepSelect" class="card">
+      <h2 style="color: var(--blue); margin-bottom: 8px; text-align: center;">Welcome! Please select a service</h2>
+      <p style="text-align: center; color: var(--gray-500); margin-bottom: 24px;">Tap the service you need and get your queue number</p>
+      <div id="servicesGrid" class="grid-3"></div>
+    </div>
+
+    <div id="stepDetails" class="card hidden">
+      <h2 style="color: var(--blue); margin-bottom: 16px;">Optional Details</h2>
+      <p style="color: var(--gray-500); margin-bottom: 20px;">Selected: <strong id="selectedServiceName"></strong></p>
+      <div class="form-group">
+        <label>Pet Name (optional)</label>
+        <input type="text" id="petName" placeholder="e.g. Max, Bella">
+      </div>
+      <div class="form-group">
+        <label>Owner Name (optional)</label>
+        <input type="text" id="ownerName" placeholder="Your name">
+      </div>
+      <div style="display: flex; gap: 12px;">
+        <button class="btn btn-outline" id="btnBack">Back</button>
+        <button class="btn btn-primary btn-lg" id="btnGetTicket" style="flex:1;">Get My Number</button>
+      </div>
+    </div>
+
+    <div id="stepTicket" class="hidden">
+      <div class="ticket-slip" id="ticketSlip">
+        <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo" style="margin-bottom: 12px;">
+        <div class="service-name" id="slipService"></div>
+        <div class="ticket-number" id="slipNumber"></div>
+        <div class="meta">
+          <div id="slipBranch"></div>
+          <div id="slipPet"></div>
+          <div id="slipWaiting"></div>
+          <div id="slipTime"></div>
+        </div>
+        <p style="margin-top: 16px; font-size: 14px; color: var(--gray-500);">Please wait for your number to be called</p>
+      </div>
+      <div style="text-align: center; margin-top: 24px;" class="no-print">
+        <button class="btn btn-primary" onclick="window.print()">Print Ticket</button>
+        <button class="btn btn-pink" id="btnNewTicket" style="margin-left: 12px;">Take Another Ticket</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    const parts = location.pathname.split('/').filter(Boolean);
+    const orgSlug = parts[1] || 'petzone';
+    const branchSlug = parts[2] || 'main';
+
+    let branchData = null;
+    let selectedService = null;
+
+    async function loadBranch() {
+      const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      branchData = json.data;
+      document.getElementById('branchTitle').textContent = branchData.branch.name;
+      document.getElementById('branchAddress').textContent = branchData.branch.address || '';
+
+      const grid = document.getElementById('servicesGrid');
+      grid.innerHTML = branchData.services.map(s => `
+        <button class="kiosk-service-btn" data-id="${s.id}" style="border-color: ${s.color}20;">
+          <span class="prefix" style="color: ${s.color};">${s.prefix}</span>
+          <strong>${s.name}</strong>
+        </button>
+      `).join('');
+
+      grid.querySelectorAll('.kiosk-service-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedService = branchData.services.find(s => s.id == btn.dataset.id);
+          document.getElementById('selectedServiceName').textContent = selectedService.name;
+          document.getElementById('stepSelect').classList.add('hidden');
+          document.getElementById('stepDetails').classList.remove('hidden');
+        });
+      });
+    }
+
+    document.getElementById('btnBack').addEventListener('click', () => {
+      document.getElementById('stepDetails').classList.add('hidden');
+      document.getElementById('stepSelect').classList.remove('hidden');
+    });
+
+    document.getElementById('btnGetTicket').addEventListener('click', async () => {
+      const btn = document.getElementById('btnGetTicket');
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/tickets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            service_type_id: selectedService.id,
+            pet_name: document.getElementById('petName').value.trim(),
+            owner_name: document.getElementById('ownerName').value.trim(),
+          }),
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message);
+
+        const t = json.data;
+        document.getElementById('slipService').textContent = t.service_name;
+        document.getElementById('slipNumber').textContent = t.ticket_code;
+        document.getElementById('slipNumber').style.color = t.color;
+        document.getElementById('slipBranch').textContent = t.branch_name;
+        document.getElementById('slipPet').textContent = t.pet_name ? `Pet: ${t.pet_name}` : '';
+        document.getElementById('slipWaiting').textContent = t.waiting_ahead > 0
+          ? `${t.waiting_ahead} patient(s) ahead of you` : 'You are next in queue!';
+        document.getElementById('slipTime').textContent = new Date(t.issued_at).toLocaleString();
+
+        document.getElementById('stepDetails').classList.add('hidden');
+        document.getElementById('stepTicket').classList.remove('hidden');
+      } catch (err) {
+        showAlert(document.getElementById('alert'), err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('btnNewTicket').addEventListener('click', () => {
+      document.getElementById('stepTicket').classList.add('hidden');
+      document.getElementById('stepSelect').classList.remove('hidden');
+      document.getElementById('petName').value = '';
+      document.getElementById('ownerName').value = '';
+      selectedService = null;
+    });
+
+    loadBranch().catch(err => showAlert(document.getElementById('alert'), err.message));
+  </script>
+</body>
+</html>

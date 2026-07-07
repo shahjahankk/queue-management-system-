@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PetZone Admin Panel</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div id="loginView" class="container" style="max-width: 420px; margin-top: 80px;">
+    <div class="card" style="text-align: center;">
+      <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo-lg" style="margin-bottom: 24px;">
+      <h2 style="color: var(--blue); margin-bottom: 8px;">Admin Login</h2>
+      <p style="color: var(--gray-500); margin-bottom: 24px;">PetZone Queue Management System</p>
+      <div id="loginAlert" class="alert hidden"></div>
+      <div class="form-group" style="text-align: left;">
+        <label>Email</label>
+        <input type="email" id="loginEmail" value="admin@petzone.com">
+      </div>
+      <div class="form-group" style="text-align: left;">
+        <label>Password</label>
+        <input type="password" id="loginPassword" value="Petzone@123">
+      </div>
+      <button class="btn btn-primary" id="btnLogin" style="width: 100%;">Sign In</button>
+      <a href="/" style="display: block; margin-top: 16px; color: var(--gray-500); font-size: 14px;">← Back to Home</a>
+    </div>
+  </div>
+
+  <div id="adminView" class="hidden">
+    <header class="header">
+      <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo">
+      <nav>
+        <span id="userName" style="color: var(--gray-700); font-weight: 600;"></span>
+        <button class="btn btn-outline btn-sm" id="btnLogout">Logout</button>
+      </nav>
+    </header>
+
+    <div class="container">
+      <div id="adminAlert" class="alert hidden"></div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="organizations">Organizations</button>
+        <button class="tab" data-tab="branches">Branches</button>
+        <button class="tab" data-tab="users">Users</button>
+        <button class="tab" data-tab="links">Quick Links</button>
+      </div>
+
+      <!-- Organizations -->
+      <div id="tab-organizations" class="tab-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="color: var(--blue);">Organizations</h2>
+          <button class="btn btn-primary btn-sm" id="btnAddOrg">+ Add Organization</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Slug</th><th>Branches</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="orgTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Branches -->
+      <div id="tab-branches" class="tab-panel hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="color: var(--blue);">Branches</h2>
+          <button class="btn btn-primary btn-sm" id="btnAddBranch">+ Add Branch</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Branch</th><th>Organization</th><th>Slug</th><th>Phone</th><th>Links</th></tr></thead>
+            <tbody id="branchTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Users -->
+      <div id="tab-users" class="tab-panel hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="color: var(--blue);">Users</h2>
+          <button class="btn btn-primary btn-sm" id="btnAddUser">+ Add User</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Branch</th></tr></thead>
+            <tbody id="userTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Quick Links -->
+      <div id="tab-links" class="tab-panel hidden">
+        <h2 style="color: var(--blue); margin-bottom: 16px;">Branch Quick Links</h2>
+        <p style="color: var(--gray-500); margin-bottom: 20px;">Share these URLs with each branch for kiosk, TV display, and staff counter.</p>
+        <div id="linksGrid" class="grid-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Organization Modal -->
+  <div id="modalOrg" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 style="color: var(--blue); margin-bottom: 16px;">Add Organization</h3>
+      <div class="form-group"><label>Name</label><input id="orgName" placeholder="PetZone Clinic"></div>
+      <div class="form-group"><label>Slug (URL)</label><input id="orgSlug" placeholder="petzone"></div>
+      <div style="display: flex; gap: 12px;">
+        <button class="btn btn-outline" data-close-modal="modalOrg">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveOrg">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Branch Modal -->
+  <div id="modalBranch" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 style="color: var(--blue); margin-bottom: 16px;">Add Branch</h3>
+      <div class="form-group"><label>Organization</label><select id="branchOrgId"></select></div>
+      <div class="form-group"><label>Branch Name</label><input id="branchName" placeholder="Main Clinic"></div>
+      <div class="form-group"><label>Slug</label><input id="branchSlug" placeholder="main"></div>
+      <div class="form-group"><label>Address</label><input id="branchAddress"></div>
+      <div class="form-group"><label>Phone</label><input id="branchPhone"></div>
+      <div style="display: flex; gap: 12px;">
+        <button class="btn btn-outline" data-close-modal="modalBranch">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveBranch">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add User Modal -->
+  <div id="modalUser" class="modal-overlay hidden">
+    <div class="modal">
+      <h3 style="color: var(--blue); margin-bottom: 16px;">Add User</h3>
+      <div class="form-group"><label>Name</label><input id="userNameInput"></div>
+      <div class="form-group"><label>Email</label><input id="userEmail" type="email"></div>
+      <div class="form-group"><label>Password</label><input id="userPassword" type="password"></div>
+      <div class="form-group"><label>Role</label>
+        <select id="userRole">
+          <option value="org_admin">Org Admin</option>
+          <option value="branch_staff">Branch Staff</option>
+          <option value="super_admin">Super Admin</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 12px;">
+        <button class="btn btn-outline" data-close-modal="modalUser">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveUser">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    let currentUser = null;
+    let orgs = [];
+    let branches = [];
+
+    function showTab(name) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.remove('hidden');
+      document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => showTab(tab.dataset.tab));
+    });
+
+    async function checkAuth() {
+      const token = getToken();
+      if (!token) return;
+      try {
+        const res = await api('/api/auth/me');
+        currentUser = res.user;
+        showAdmin();
+      } catch { setToken(null); }
+    }
+
+    function showAdmin() {
+      document.getElementById('loginView').classList.add('hidden');
+      document.getElementById('adminView').classList.remove('hidden');
+      document.getElementById('userName').textContent = currentUser.name;
+      loadData();
+    }
+
+    document.getElementById('btnLogin').addEventListener('click', async () => {
+      try {
+        const res = await api('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: document.getElementById('loginEmail').value,
+            password: document.getElementById('loginPassword').value,
+          }),
+        });
+        setToken(res.token);
+        currentUser = res.user;
+        showAdmin();
+      } catch (err) {
+        showAlert(document.getElementById('loginAlert'), err.message);
+      }
+    });
+
+    document.getElementById('btnLogout').addEventListener('click', async () => {
+      await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      setToken(null);
+      location.reload();
+    });
+
+    async function loadData() {
+      try {
+        if (currentUser.role === 'super_admin') {
+          const oRes = await api('/api/admin/organizations');
+          orgs = oRes.data;
+          document.getElementById('orgTable').innerHTML = orgs.map(o => `
+            <tr>
+              <td><strong>${o.name}</strong></td>
+              <td>${o.slug}</td>
+              <td>${o.branch_count}</td>
+              <td>${o.is_active ? '✅ Active' : '❌ Inactive'}</td>
+              <td><button class="btn btn-sm btn-outline" onclick="toggleOrg(${o.id}, ${o.is_active ? 0 : 1})">${o.is_active ? 'Disable' : 'Enable'}</button></td>
+            </tr>
+          `).join('');
+        } else {
+          document.querySelector('[data-tab="organizations"]').style.display = 'none';
+        }
+
+        const bRes = await api('/api/admin/branches');
+        branches = bRes.data;
+        document.getElementById('branchTable').innerHTML = branches.map(b => `
+          <tr>
+            <td><strong>${b.name}</strong></td>
+            <td>${b.org_name}</td>
+            <td>${b.slug}</td>
+            <td>${b.phone || '-'}</td>
+            <td>
+              <a href="/kiosk/${b.org_slug}/${b.slug}" class="btn btn-sm btn-pink" target="_blank">Kiosk</a>
+              <a href="/display/${b.org_slug}/${b.slug}" class="btn btn-sm btn-outline" target="_blank">Display</a>
+              <a href="/counter/${b.org_slug}/${b.slug}" class="btn btn-sm btn-primary" target="_blank">Counter</a>
+            </td>
+          </tr>
+        `).join('');
+
+        document.getElementById('linksGrid').innerHTML = branches.map(b => `
+          <div class="card">
+            <h3 style="color: var(--blue); margin-bottom: 8px;">${b.name}</h3>
+            <p style="font-size: 13px; color: var(--gray-500); margin-bottom: 12px;">${b.org_name}</p>
+            <div style="font-size: 13px; line-height: 2;">
+              <div>🎫 Kiosk: <a href="/kiosk/${b.org_slug}/${b.slug}" target="_blank">/kiosk/${b.org_slug}/${b.slug}</a></div>
+              <div>📺 Display: <a href="/display/${b.org_slug}/${b.slug}" target="_blank">/display/${b.org_slug}/${b.slug}</a></div>
+              <div>🩺 Counter: <a href="/counter/${b.org_slug}/${b.slug}" target="_blank">/counter/${b.org_slug}/${b.slug}</a></div>
+            </div>
+          </div>
+        `).join('');
+
+        try {
+          const uRes = await api('/api/admin/users');
+          document.getElementById('userTable').innerHTML = uRes.data.map(u => `
+            <tr>
+              <td>${u.name}</td>
+              <td>${u.email}</td>
+              <td>${u.role}</td>
+              <td>${u.branch_name || u.org_name || '-'}</td>
+            </tr>
+          `).join('');
+        } catch { /* branch staff can't list users */ }
+
+        const orgSelect = document.getElementById('branchOrgId');
+        orgSelect.innerHTML = orgs.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+      } catch (err) {
+        showAlert(document.getElementById('adminAlert'), err.message);
+      }
+    }
+
+    window.toggleOrg = async (id, active) => {
+      await api(`/api/admin/organizations/${id}`, { method: 'PATCH', body: JSON.stringify({ is_active: active }) });
+      loadData();
+    };
+
+    document.getElementById('btnAddOrg').addEventListener('click', () => openModal('modalOrg'));
+    document.getElementById('btnAddBranch').addEventListener('click', () => openModal('modalBranch'));
+    document.getElementById('btnAddUser').addEventListener('click', () => openModal('modalUser'));
+
+    document.getElementById('btnSaveOrg').addEventListener('click', async () => {
+      try {
+        await api('/api/admin/organizations', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: document.getElementById('orgName').value,
+            slug: document.getElementById('orgSlug').value,
+          }),
+        });
+        closeModal('modalOrg');
+        loadData();
+      } catch (err) { alert(err.message); }
+    });
+
+    document.getElementById('btnSaveBranch').addEventListener('click', async () => {
+      try {
+        await api('/api/admin/branches', {
+          method: 'POST',
+          body: JSON.stringify({
+            org_id: document.getElementById('branchOrgId').value,
+            name: document.getElementById('branchName').value,
+            slug: document.getElementById('branchSlug').value,
+            address: document.getElementById('branchAddress').value,
+            phone: document.getElementById('branchPhone').value,
+          }),
+        });
+        closeModal('modalBranch');
+        loadData();
+      } catch (err) { alert(err.message); }
+    });
+
+    document.getElementById('btnSaveUser').addEventListener('click', async () => {
+      try {
+        await api('/api/admin/users', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: document.getElementById('userNameInput').value,
+            email: document.getElementById('userEmail').value,
+            password: document.getElementById('userPassword').value,
+            role: document.getElementById('userRole').value,
+          }),
+        });
+        closeModal('modalUser');
+        loadData();
+      } catch (err) { alert(err.message); }
+    });
+
+    checkAuth();
+  </script>
+</body>
+</html>

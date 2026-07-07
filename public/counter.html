@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PetZone Staff Counter</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <img src="/assets/petzonelogo.svg" alt="PetZone" class="logo">
+    <div>
+      <h2 id="branchTitle" style="color: var(--blue);">Staff Counter</h2>
+    </div>
+    <nav>
+      <a href="/" class="btn btn-outline btn-sm">Home</a>
+    </nav>
+  </header>
+
+  <div class="container">
+    <div id="alert" class="alert hidden"></div>
+
+    <div class="grid-4" style="margin-bottom: 24px;" id="statsRow">
+      <div class="card stat-card"><div class="number" id="statWaiting">0</div><div class="label">Waiting</div></div>
+      <div class="card stat-card"><div class="number" id="statProgress">0</div><div class="label">In Progress</div></div>
+      <div class="card stat-card"><div class="number" id="statCompleted">0</div><div class="label">Completed</div></div>
+      <div class="card stat-card"><div class="number" id="statTotal">0</div><div class="label">Total Today</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3 style="color: var(--blue); margin-bottom: 16px;">Call Next Patient</h3>
+        <div class="form-group">
+          <label>Service Type</label>
+          <select id="serviceFilter"></select>
+        </div>
+        <div class="form-group">
+          <label>Counter</label>
+          <select id="counterSelect"></select>
+        </div>
+        <button class="btn btn-primary btn-lg" id="btnCallNext" style="width: 100%;">Call Next Number</button>
+
+        <div id="currentTicket" class="card" style="margin-top: 20px; background: var(--gray-50); display: none;">
+          <div style="text-align: center;">
+            <div style="font-size: 14px; color: var(--gray-500);">Currently Called</div>
+            <div id="currentNumber" style="font-size: 64px; font-weight: 900; color: var(--blue);"></div>
+            <div id="currentService" style="font-size: 16px; margin-bottom: 12px;"></div>
+            <div id="currentMeta" style="font-size: 14px; color: var(--gray-500); margin-bottom: 16px;"></div>
+            <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+              <button class="btn btn-success btn-sm" data-action="serving">Start Serving</button>
+              <button class="btn btn-primary btn-sm" data-action="completed">Complete</button>
+              <button class="btn btn-outline btn-sm" data-action="recall">Recall</button>
+              <button class="btn btn-danger btn-sm" data-action="skipped">Skip</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="color: var(--blue); margin-bottom: 16px;">Waiting Queue</h3>
+        <div id="queueList" style="max-height: 500px; overflow-y: auto;">
+          <p style="color: var(--gray-500);">Loading...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    const parts = location.pathname.split('/').filter(Boolean);
+    const orgSlug = parts[1] || 'petzone';
+    const branchSlug = parts[2] || 'main';
+
+    let branchId = null;
+    let currentTicketId = null;
+    let services = [];
+    let counters = [];
+
+    async function loadBranch() {
+      const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      branchId = json.data.branch.id;
+      services = json.data.services;
+      document.getElementById('branchTitle').textContent = json.data.branch.name + ' — Counter';
+
+      const svcSelect = document.getElementById('serviceFilter');
+      svcSelect.innerHTML = '<option value="">All Services</option>' +
+        services.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+
+      try {
+        const cRes = await api(`/api/admin/branches/${branchId}/counters`);
+        counters = cRes.data;
+      } catch {
+        counters = [];
+      }
+
+      const cntSelect = document.getElementById('counterSelect');
+      cntSelect.innerHTML = '<option value="">Select Counter</option>' +
+        counters.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
+
+    async function refreshQueue() {
+      const serviceId = document.getElementById('serviceFilter').value;
+      let url = `/api/queue/public/${orgSlug}/${branchSlug}/queue`;
+      if (serviceId) url += `?service_type_id=${serviceId}`;
+
+      try {
+        const res = await fetch(url);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message);
+        const waiting = json.data.filter(t => t.status === 'waiting');
+        const called = json.data.filter(t => ['called', 'serving'].includes(t.status));
+
+        document.getElementById('queueList').innerHTML = waiting.length
+          ? waiting.map(t => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-200);">
+                <div>
+                  <strong style="font-size:20px;color:var(--blue);">${t.ticket_code}</strong>
+                  <span style="margin-left:8px;color:var(--gray-500);">${t.service_name}</span>
+                  ${t.pet_name ? `<div style="font-size:13px;color:var(--gray-500);">Pet: ${t.pet_name}</div>` : ''}
+                </div>
+                ${statusBadge(t.status)}
+              </div>
+            `).join('')
+          : '<p style="color:var(--gray-500);">No patients waiting</p>';
+
+        if (called.length) {
+          const t = called[0];
+          currentTicketId = t.id;
+          document.getElementById('currentTicket').style.display = 'block';
+          document.getElementById('currentNumber').textContent = t.ticket_code;
+          document.getElementById('currentNumber').style.color = t.color;
+          document.getElementById('currentService').textContent = t.service_name;
+          document.getElementById('currentMeta').textContent = [
+            t.pet_name ? `Pet: ${t.pet_name}` : '',
+            t.owner_name ? `Owner: ${t.owner_name}` : '',
+          ].filter(Boolean).join(' · ');
+        }
+      } catch (err) {
+        showAlert(document.getElementById('alert'), err.message);
+      }
+    }
+
+    async function refreshStatsPublic() {
+      const pubRes = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/status`);
+      const pub = await pubRes.json();
+      if (pub.success) {
+        const waiting = pub.data.waiting_by_service.reduce((a, w) => a + (w.waiting_count || 0), 0);
+        const serving = pub.data.now_serving.length;
+        document.getElementById('statWaiting').textContent = waiting;
+        document.getElementById('statProgress').textContent = serving;
+        document.getElementById('statCompleted').textContent = pub.data.recently_completed.length;
+        document.getElementById('statTotal').textContent = waiting + serving;
+      }
+    }
+
+    document.getElementById('btnCallNext').addEventListener('click', async () => {
+      try {
+        const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/call-next`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            service_type_id: document.getElementById('serviceFilter').value || null,
+            counter_id: document.getElementById('counterSelect').value || null,
+          }),
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message);
+        if (json.data) {
+          currentTicketId = json.data.id;
+          document.getElementById('currentTicket').style.display = 'block';
+          document.getElementById('currentNumber').textContent = json.data.ticket_code;
+          document.getElementById('currentService').textContent = json.data.service_name;
+        } else {
+          showAlert(document.getElementById('alert'), 'No waiting tickets', 'success');
+        }
+        refreshQueue();
+        refreshStatsPublic();
+      } catch (err) {
+        showAlert(document.getElementById('alert'), err.message);
+      }
+    });
+
+    document.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!currentTicketId) return;
+        const action = btn.dataset.action;
+        try {
+          if (action === 'recall') {
+            await fetch(`/api/queue/public/tickets/${currentTicketId}/recall`, { method: 'POST' });
+          } else {
+            await fetch(`/api/queue/public/tickets/${currentTicketId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: action }),
+            });
+            if (action === 'completed' || action === 'skipped') {
+              currentTicketId = null;
+              document.getElementById('currentTicket').style.display = 'none';
+            }
+          }
+          refreshQueue();
+          refreshStatsPublic();
+        } catch (err) {
+          showAlert(document.getElementById('alert'), err.message);
+        }
+      });
+    });
+
+    document.getElementById('serviceFilter').addEventListener('change', refreshQueue);
+
+    loadBranch().then(() => {
+      refreshQueue();
+      refreshStatsPublic();
+      setInterval(() => { refreshQueue(); refreshStatsPublic(); }, 5000);
+    }).catch(err => showAlert(document.getElementById('alert'), err.message));
+  </script>
+</body>
+</html>

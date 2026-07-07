@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="128" viewBox="0 0 512 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PetzonePOS logo">
+  <rect width="100%" height="100%" fill="none" />
+  <g fill="none" stroke="none">
+    <circle cx="64" cy="64" r="44" fill="#FFB6C1" />
+    <path d="M44 52c0-11 9-20 20-20s20 9 20 20-9 20-20 20-20-9-20-20z" fill="#ffffff" opacity="0.95"/>
+    <text x="140" y="78" font-family="Segoe UI, Roboto, Arial" font-size="36" fill="#1E3A8A" font-weight="700">Petzone</text>
+    <text x="140" y="104" font-family="Segoe UI, Roboto, Arial" font-size="18" fill="#4B5563">POS</text>
+  </g>
+</svg>
