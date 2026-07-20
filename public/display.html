@@ -17,9 +17,9 @@
   </div>
 
   <h2 style="font-size: 28px; margin-bottom: 20px; opacity: 0.9;">Now Serving</h2>
-  <div id="nowServing" class="now-serving-grid">
-    <div class="now-serving-card pulse">
-      <div style="font-size: 18px; opacity: 0.7; margin-bottom: 8px;">Waiting for next patient...</div>
+  <div id="nowServing" class="opd-serving-grid">
+    <div class="opd-serving-card pulse">
+      <div class="opd-label">Loading...</div>
       <div class="number">—</div>
     </div>
   </div>
@@ -27,17 +27,52 @@
   <div class="waiting-panel">
     <h2 style="font-size: 24px; margin-bottom: 16px;">Waiting Queue</h2>
     <div id="waitingList"></div>
+    <div id="waitingMeta" style="margin-top: 12px; opacity: 0.6; font-size: 14px;"></div>
   </div>
 
   <script>
     const parts = location.pathname.split('/').filter(Boolean);
     const orgSlug = parts[1] || 'petzone';
     const branchSlug = parts[2] || 'main';
+    const prevServing = new Map();
 
     function updateClock() {
       document.getElementById('clock').textContent = new Date().toLocaleTimeString([], {
         hour: '2-digit', minute: '2-digit', second: '2-digit'
       });
+    }
+
+    function renderOpdCards(byCounter) {
+      const servingEl = document.getElementById('nowServing');
+      const cols = Math.min(Math.max(byCounter.length, 1), 4);
+
+      servingEl.className = 'opd-serving-grid';
+      servingEl.style.setProperty('--opd-cols', cols);
+
+      if (!byCounter.length) {
+        servingEl.innerHTML = `
+          <div class="opd-serving-card pulse">
+            <div class="opd-label">Consultancy</div>
+            <div class="number">—</div>
+            <div class="opd-status">No OPD counters configured</div>
+          </div>`;
+        return;
+      }
+
+      servingEl.innerHTML = byCounter.map((row) => {
+        const key = String(row.counter_id);
+        const changed = prevServing.get(key) !== row.ticket_code;
+        prevServing.set(key, row.ticket_code);
+        const active = row.ticket_code ? 'is-active' : 'is-idle';
+        const flash = changed && row.ticket_code ? ' just-called' : '';
+
+        return `
+          <div class="opd-serving-card ${active}${flash}" data-counter="${key}">
+            <div class="opd-label">${row.counter_label || row.counter_name}</div>
+            <div class="number">${row.ticket_code || '—'}</div>
+            <div class="opd-status">${row.ticket_code ? (row.status === 'serving' ? 'In consultation' : 'Please proceed') : 'Waiting for patient'}</div>
+          </div>`;
+      }).join('');
     }
 
     async function refresh() {
@@ -50,38 +85,30 @@
         document.getElementById('branchName').textContent = d.branch.name;
         document.getElementById('orgName').textContent = d.branch.org_name;
 
-        const serving = d.now_serving;
-        const servingEl = document.getElementById('nowServing');
+        renderOpdCards(d.by_counter || []);
 
-        if (serving.length === 0) {
-          servingEl.innerHTML = `
-            <div class="now-serving-card pulse">
-              <div style="font-size: 18px; opacity: 0.7; margin-bottom: 8px;">Please wait</div>
-              <div class="number">—</div>
-            </div>`;
-        } else {
-          servingEl.innerHTML = serving.map(s => `
-            <div class="now-serving-card">
-              <div style="font-size: 16px; opacity: 0.7;">${s.service_name}</div>
-              <div class="number">${s.ticket_code}</div>
-              <div class="counter">${s.counter_name || 'Please proceed to counter'}</div>
-            </div>
-          `).join('');
-        }
+        const waiting = d.waiting_by_service || [];
+        const totalWaiting = waiting.reduce((sum, w) => sum + (w.waiting_count || 0), 0);
+        const nextTicket = waiting.find((w) => w.next_ticket)?.next_ticket;
 
-        document.getElementById('waitingList').innerHTML = d.waiting_by_service.map(w => `
-          <div class="waiting-row">
-            <span>${w.name} <span style="opacity:0.5;">(${w.waiting_count} waiting)</span></span>
-            <span class="next-num">${w.next_ticket || '—'}</span>
-          </div>
-        `).join('');
+        document.getElementById('waitingList').innerHTML = waiting.length
+          ? waiting.map((w) => `
+              <div class="waiting-row">
+                <span>${w.name} <span style="opacity:0.5;">(${w.waiting_count} waiting)</span></span>
+                <span class="next-num">${w.next_ticket || '—'}</span>
+              </div>
+            `).join('')
+          : '<div class="waiting-row"><span>No patients waiting</span><span class="next-num">—</span></div>';
+
+        document.getElementById('waitingMeta').textContent =
+          totalWaiting > 0 ? `Next in queue: ${nextTicket || '—'} · ${totalWaiting} patient(s) waiting` : 'Queue is clear';
       } catch (e) { /* silent refresh */ }
     }
 
     updateClock();
     setInterval(updateClock, 1000);
     refresh();
-    setInterval(refresh, 3000);
+    setInterval(refresh, 2500);
   </script>
 </body>
 </html>

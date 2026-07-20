@@ -50,6 +50,58 @@ async function getConsultationService(branchId) {
   return rows[0] || null;
 }
 
+async function getActiveCounters(branchId) {
+  return executeQuery(
+    `SELECT id, name, service_type_id
+     FROM qms_counters
+     WHERE branch_id = ? AND is_active = 1
+     ORDER BY id ASC`,
+    [branchId]
+  );
+}
+
+async function getServingByCounter(branchId, dateKey) {
+  const counters = await getActiveCounters(branchId);
+
+  const serving = await executeQuery(
+    `SELECT t.id, t.counter_id, t.ticket_code, t.status, t.called_at,
+            s.name AS service_name, s.color
+     FROM qms_tickets t
+     JOIN qms_service_types s ON s.id = t.service_type_id
+     WHERE t.branch_id = ? AND t.date_key = ?
+       AND t.status IN ('called', 'serving')
+       AND t.counter_id IS NOT NULL
+     ORDER BY t.called_at DESC`,
+    [branchId, dateKey]
+  );
+
+  const latestByCounter = new Map();
+  for (const ticket of serving) {
+    if (!latestByCounter.has(ticket.counter_id)) {
+      latestByCounter.set(ticket.counter_id, ticket);
+    }
+  }
+
+  return counters.map((counter, index) => {
+    const active = latestByCounter.get(counter.id);
+    const numMatch = String(counter.name).match(/(\d+)/);
+    const station = numMatch ? parseInt(numMatch[1], 10) : index + 1;
+
+    return {
+      counter_id: counter.id,
+      counter_name: counter.name,
+      station,
+      counter_label: numMatch ? `OPD${numMatch[1]}` : `OPD${index + 1}`,
+      ticket_code: active?.ticket_code || null,
+      ticket_id: active?.id || null,
+      status: active?.status || null,
+      service_name: active?.service_name || null,
+      color: active?.color || null,
+      called_at: active?.called_at || null,
+    };
+  });
+}
+
 // Resolve QMS branch from POS branch id (public — used by POS frontend)
 router.get('/resolve', async (req, res) => {
   try {
@@ -249,6 +301,33 @@ router.post('/public/:orgSlug/:branchSlug/tickets', async (req, res) => {
   }
 });
 
+// ── Public: OPD counters for branch (tablets + display) ─────
+router.get('/public/:orgSlug/:branchSlug/counters', async (req, res) => {
+  try {
+    const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
+    if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
+
+    const counters = await getActiveCounters(branch.id);
+    const byCounter = await getServingByCounter(branch.id, todayKey());
+
+    res.json({
+      success: true,
+      data: counters.map((c, index) => {
+        const match = byCounter.find((row) => row.counter_id === c.id);
+        return {
+          id: c.id,
+          name: c.name,
+          station: match?.station || index + 1,
+          counter_label: match?.counter_label || `OPD${index + 1}`,
+          now_serving: match?.ticket_code || null,
+        };
+      }),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── Live queue status (display screen) ──────────────────────
 router.get('/public/:orgSlug/:branchSlug/status', async (req, res) => {
   try {
@@ -292,12 +371,15 @@ router.get('/public/:orgSlug/:branchSlug/status', async (req, res) => {
       [branch.id, dateKey]
     );
 
+    const byCounter = await getServingByCounter(branch.id, dateKey);
+
     res.json({
       success: true,
       data: {
         branch: { name: branch.name, org_name: branch.org_name },
         date_key: dateKey,
         now_serving: nowServing,
+        by_counter: byCounter,
         waiting_by_service: waitingByService,
         recently_completed: recentlyCompleted,
         updated_at: new Date().toISOString(),
@@ -316,6 +398,17 @@ router.post('/public/:orgSlug/:branchSlug/call-next', async (req, res) => {
     if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
 
     const { counter_id } = req.body;
+    const counters = await getActiveCounters(branch.id);
+    if (counters.length && !counter_id) {
+      return res.status(400).json({ success: false, message: 'Please select an OPD counter before calling the next patient' });
+    }
+    if (counter_id) {
+      const valid = counters.find((c) => String(c.id) === String(counter_id));
+      if (!valid) {
+        return res.status(400).json({ success: false, message: 'Invalid OPD counter for this branch' });
+      }
+    }
+
     const consultation = await getConsultationService(branch.id);
     if (!consultation) {
       return res.status(400).json({ success: false, message: 'No consultancy service configured for this branch' });
@@ -353,7 +446,12 @@ router.post('/public/:orgSlug/:branchSlug/call-next', async (req, res) => {
        LEFT JOIN qms_counters c ON c.id = t.counter_id WHERE t.id = ?`,
       [ticketId]
     );
-    res.json({ success: true, data: ticket[0] });
+    const payload = ticket[0];
+    if (payload?.counter_name) {
+      const numMatch = String(payload.counter_name).match(/(\d+)/);
+      payload.counter_label = numMatch ? `OPD${numMatch[1]}` : payload.counter_name;
+    }
+    res.json({ success: true, data: payload });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ success: false, message: err.message });

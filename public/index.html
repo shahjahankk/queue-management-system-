@@ -46,12 +46,21 @@
 
     <div class="card" style="margin-top: 40px; text-align: center;">
       <h3 style="color: var(--blue); margin-bottom: 12px;">Quick Links by Branch</h3>
-      <p style="color: var(--gray-500); margin-bottom: 16px;">Replace <code>petzone/main</code> with your org/branch slug</p>
+      <p style="color: var(--gray-500); margin-bottom: 16px;">Each OPD tablet can open its own station link. The TV display updates automatically.</p>
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px;">
+        <a href="/display/petzone/main" class="btn btn-pink btn-sm">Main Clinic TV Display</a>
+        <a href="/display/petzone/north" class="btn btn-pink btn-sm">North Branch TV Display</a>
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px;">
+        <a href="/kiosk/petzone/main" class="btn btn-outline btn-sm">Main Kiosk</a>
+        <a href="/kiosk/petzone/north" class="btn btn-outline btn-sm">North Kiosk</a>
+      </div>
       <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
-        <a href="/kiosk/petzone/main" class="btn btn-pink btn-sm">Main Clinic Kiosk</a>
-        <a href="/kiosk/petzone/north" class="btn btn-pink btn-sm">North Branch Kiosk</a>
-        <a href="/opd/petzone/main" class="btn btn-outline btn-sm">Main OPD Panel</a>
-        <a href="/opd/petzone/north" class="btn btn-outline btn-sm">North OPD Panel</a>
+        <a href="/opd/petzone/main?opd=1" class="btn btn-outline btn-sm">Main OPD1</a>
+        <a href="/opd/petzone/main?opd=2" class="btn btn-outline btn-sm">Main OPD2</a>
+        <a href="/opd/petzone/main?opd=3" class="btn btn-outline btn-sm">Main OPD3</a>
+        <a href="/opd/petzone/north?opd=1" class="btn btn-outline btn-sm">North OPD1</a>
+        <a href="/opd/petzone/north?opd=2" class="btn btn-outline btn-sm">North OPD2</a>
       </div>
     </div>
   </div>

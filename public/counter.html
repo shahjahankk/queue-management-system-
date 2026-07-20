@@ -11,6 +11,7 @@
     <img src="/assets/petzonelogo.png" alt="PetZone" class="logo" onerror="this.src='/assets/petzonelogo.svg'">
     <div>
       <h2 id="branchTitle" style="color: var(--blue);">OPD Attendant Panel</h2>
+      <p id="stationLabel" style="font-size: 14px; color: var(--gray-500); margin-top: 4px;"></p>
     </div>
     <nav>
       <a href="/" class="btn btn-outline btn-sm">Home</a>
@@ -66,11 +67,58 @@
     const parts = location.pathname.split('/').filter(Boolean);
     const orgSlug = parts[1] || 'petzone';
     const branchSlug = parts[2] || 'main';
+    const stationParam = new URLSearchParams(location.search).get('opd') || new URLSearchParams(location.search).get('station');
+    const storageKey = `opd-counter-${orgSlug}-${branchSlug}`;
 
     let branchId = null;
     let currentTicketId = null;
     let services = [];
     let counters = [];
+
+    function getSelectedCounterId() {
+      return document.getElementById('counterSelect').value || null;
+    }
+
+    function updateStationLabel() {
+      const selected = counters.find((c) => String(c.id) === String(getSelectedCounterId()));
+      const label = selected?.counter_label || selected?.name || '';
+      document.getElementById('stationLabel').textContent = label
+        ? `Station: ${label} — calls appear on the TV display under ${label}`
+        : 'Select your OPD station (OPD1, OPD2, …)';
+    }
+
+    function applyCounterSelection(counterId) {
+      const select = document.getElementById('counterSelect');
+      if (!counterId || !select) return;
+      const exists = counters.some((c) => String(c.id) === String(counterId));
+      if (exists) {
+        select.value = String(counterId);
+        localStorage.setItem(storageKey, String(counterId));
+        updateStationLabel();
+      }
+    }
+
+    function resolveStationCounter() {
+      if (!counters.length) return;
+
+      if (stationParam) {
+        const byStation = counters.find((c) => String(c.station) === String(stationParam));
+        if (byStation) {
+          applyCounterSelection(byStation.id);
+          return;
+        }
+      }
+
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        applyCounterSelection(saved);
+        return;
+      }
+
+      if (counters.length === 1) {
+        applyCounterSelection(counters[0].id);
+      }
+    }
 
     async function loadBranch() {
       const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}`);
@@ -80,16 +128,16 @@
       services = json.data.services;
       document.getElementById('branchTitle').textContent = json.data.branch.name + ' — OPD Attendant';
 
-      try {
-        const cRes = await api(`/api/admin/branches/${branchId}/counters`);
-        counters = cRes.data;
-      } catch {
-        counters = [];
-      }
+      const cRes = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/counters`);
+      const cJson = await cRes.json();
+      counters = cJson.success ? cJson.data : [];
 
       const cntSelect = document.getElementById('counterSelect');
-      cntSelect.innerHTML = '<option value="">Select Counter</option>' +
-        counters.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      cntSelect.innerHTML = '<option value="">Select OPD Station</option>' +
+        counters.map((c) => `<option value="${c.id}">${c.counter_label || c.name}</option>`).join('');
+
+      resolveStationCounter();
+      updateStationLabel();
     }
 
     async function refreshQueue() {
@@ -100,7 +148,11 @@
         const json = await res.json();
         if (!json.success) throw new Error(json.message);
         const waiting = json.data.filter(t => t.status === 'waiting');
-        const called = json.data.filter(t => ['called', 'serving'].includes(t.status));
+        const counterId = getSelectedCounterId();
+        const called = json.data.filter((t) => ['called', 'serving'].includes(t.status));
+        const myTicket = counterId
+          ? called.find((t) => String(t.counter_id) === String(counterId))
+          : called[0];
 
         document.getElementById('queueList').innerHTML = waiting.length
           ? waiting.map(t => `
@@ -115,17 +167,21 @@
             `).join('')
           : '<p style="color:var(--gray-500);">No patients waiting</p>';
 
-        if (called.length) {
-          const t = called[0];
+        if (myTicket) {
+          const t = myTicket;
           currentTicketId = t.id;
           document.getElementById('currentTicket').style.display = 'block';
           document.getElementById('currentNumber').textContent = t.ticket_code;
           document.getElementById('currentNumber').style.color = t.color;
           document.getElementById('currentService').textContent = t.service_name;
           document.getElementById('currentMeta').textContent = [
+            t.counter_name ? `Counter: ${t.counter_name}` : '',
             t.pet_name ? `Pet: ${t.pet_name}` : '',
             t.owner_name ? `Owner: ${t.owner_name}` : '',
           ].filter(Boolean).join(' · ');
+        } else {
+          currentTicketId = null;
+          document.getElementById('currentTicket').style.display = 'none';
         }
       } catch (err) {
         showAlert(document.getElementById('alert'), err.message);
@@ -137,7 +193,7 @@
       const pub = await pubRes.json();
       if (pub.success) {
         const waiting = pub.data.waiting_by_service.reduce((a, w) => a + (w.waiting_count || 0), 0);
-        const serving = pub.data.now_serving.length;
+        const serving = (pub.data.by_counter || []).filter((row) => row.ticket_code).length;
         document.getElementById('statWaiting').textContent = waiting;
         document.getElementById('statProgress').textContent = serving;
         document.getElementById('statCompleted').textContent = pub.data.recently_completed.length;
@@ -145,14 +201,25 @@
       }
     }
 
+    document.getElementById('counterSelect').addEventListener('change', () => {
+      const counterId = getSelectedCounterId();
+      if (counterId) localStorage.setItem(storageKey, counterId);
+      updateStationLabel();
+      refreshQueue();
+    });
+
     document.getElementById('btnCallNext').addEventListener('click', async () => {
       try {
+        const counterId = getSelectedCounterId();
+        if (!counterId && counters.length) {
+          showAlert(document.getElementById('alert'), 'Please select your OPD station first');
+          return;
+        }
+
         const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/call-next`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            counter_id: document.getElementById('counterSelect').value || null,
-          }),
+          body: JSON.stringify({ counter_id: counterId }),
         });
         const json = await res.json();
         if (!json.success) throw new Error(json.message);
@@ -160,7 +227,11 @@
           currentTicketId = json.data.id;
           document.getElementById('currentTicket').style.display = 'block';
           document.getElementById('currentNumber').textContent = json.data.ticket_code;
+          document.getElementById('currentNumber').style.color = json.data.color || 'var(--blue)';
           document.getElementById('currentService').textContent = json.data.service_name;
+          document.getElementById('currentMeta').textContent = json.data.counter_label || json.data.counter_name
+            ? `Now showing on TV as ${json.data.counter_label || json.data.counter_name}`
+            : '';
         } else {
           showAlert(document.getElementById('alert'), 'No waiting tickets', 'success');
         }
@@ -200,7 +271,7 @@
     loadBranch().then(() => {
       refreshQueue();
       refreshStatsPublic();
-      setInterval(() => { refreshQueue(); refreshStatsPublic(); }, 5000);
+      setInterval(() => { refreshQueue(); refreshStatsPublic(); }, 4000);
     }).catch(err => showAlert(document.getElementById('alert'), err.message));
   </script>
 </body>
