@@ -32,7 +32,17 @@ async function getBranchByPosId(posBranchId) {
   return rows[0] || null;
 }
 
-async function getDefaultService(branchId) {
+async function getConsultationService(branchId) {
+  const preferred = await executeQuery(
+    `SELECT * FROM qms_service_types
+     WHERE branch_id = ? AND is_active = 1
+       AND (LOWER(name) LIKE '%consult%' OR LOWER(name) LIKE '%opd%')
+     ORDER BY display_order, id
+     LIMIT 1`,
+    [branchId]
+  );
+  if (preferred.length) return preferred[0];
+
   const rows = await executeQuery(
     'SELECT * FROM qms_service_types WHERE branch_id = ? AND is_active = 1 ORDER BY display_order, id LIMIT 1',
     [branchId]
@@ -74,16 +84,16 @@ router.get('/resolve', async (req, res) => {
   }
 });
 
-// ── Simple token: plain number 28, 29, 30 … (logo slip only, no service pick) ──
+// ── Simple token: plain number 28, 29, 30 … (consultancy only) ──
 router.post('/public/:orgSlug/:branchSlug/token', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
     if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
 
-    const service = await getDefaultService(branch.id);
+    const service = await getConsultationService(branch.id);
     if (!service) {
-      return res.status(400).json({ success: false, message: 'No queue service configured for this branch' });
+      return res.status(400).json({ success: false, message: 'No consultancy service configured for this branch' });
     }
 
     const dateKey = todayKey();
@@ -138,10 +148,14 @@ router.get('/public/:orgSlug/:branchSlug', async (req, res) => {
     const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
     if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
 
-    const services = await executeQuery(
-      'SELECT id, name, prefix, color, display_order FROM qms_service_types WHERE branch_id = ? AND is_active = 1 ORDER BY display_order',
-      [branch.id]
-    );
+    const consultation = await getConsultationService(branch.id);
+    const services = consultation ? [{
+      id: consultation.id,
+      name: consultation.name,
+      prefix: consultation.prefix,
+      color: consultation.color,
+      display_order: consultation.display_order,
+    }] : [];
 
     res.json({
       success: true,
@@ -301,7 +315,11 @@ router.post('/public/:orgSlug/:branchSlug/call-next', async (req, res) => {
     const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
     if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
 
-    const { service_type_id, counter_id } = req.body;
+    const { counter_id } = req.body;
+    const consultation = await getConsultationService(branch.id);
+    if (!consultation) {
+      return res.status(400).json({ success: false, message: 'No consultancy service configured for this branch' });
+    }
     const dateKey = todayKey();
 
     await conn.beginTransaction();
@@ -311,7 +329,8 @@ router.post('/public/:orgSlug/:branchSlug/call-next', async (req, res) => {
       WHERE t.branch_id = ? AND t.date_key = ? AND t.status = 'waiting'
     `;
     const params = [branch.id, dateKey];
-    if (service_type_id) { query += ' AND t.service_type_id = ?'; params.push(service_type_id); }
+    query += ' AND t.service_type_id = ?';
+    params.push(consultation.id);
     query += ' ORDER BY t.ticket_number ASC LIMIT 1 FOR UPDATE';
 
     const [waiting] = await conn.execute(query, params);
@@ -384,7 +403,10 @@ router.get('/public/:orgSlug/:branchSlug/queue', async (req, res) => {
     if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
 
     const dateKey = todayKey();
-    const { service_type_id } = req.query;
+    const consultation = await getConsultationService(branch.id);
+    if (!consultation) {
+      return res.status(400).json({ success: false, message: 'No consultancy service configured for this branch' });
+    }
     let query = `
       SELECT t.*, s.name AS service_name, s.prefix, s.color, c.name AS counter_name
       FROM qms_tickets t
@@ -393,7 +415,8 @@ router.get('/public/:orgSlug/:branchSlug/queue', async (req, res) => {
       WHERE t.branch_id = ? AND t.date_key = ? AND t.status IN ('waiting','called','serving')
     `;
     const params = [branch.id, dateKey];
-    if (service_type_id) { query += ' AND t.service_type_id = ?'; params.push(service_type_id); }
+    query += ' AND t.service_type_id = ?';
+    params.push(consultation.id);
     query += ' ORDER BY t.ticket_number ASC';
 
     const tickets = await executeQuery(query, params);

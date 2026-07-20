@@ -72,6 +72,11 @@ app.get('/counter/:orgSlug/:branchSlug', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'counter.html'));
 });
 
+// OPD tablet mode (branch-specific attendant panel)
+app.get('/opd/:orgSlug/:branchSlug', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'counter.html'));
+});
+
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Not found' });
 });

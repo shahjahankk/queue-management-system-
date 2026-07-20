@@ -132,19 +132,11 @@ SET @branch_north = (SELECT id FROM qms_branches WHERE slug = 'north' AND org_id
 
 INSERT INTO qms_service_types (branch_id, name, prefix, color, display_order) VALUES
   (@branch_main, 'General Consultation', 'C', '#1E3A8A', 1),
-  (@branch_main, 'Vaccination',          'V', '#059669', 2),
-  (@branch_main, 'Grooming',             'G', '#D97706', 3),
-  (@branch_main, 'Emergency',            'E', '#DC2626', 4),
-  (@branch_main, 'Pharmacy Pickup',      'P', '#7C3AED', 5),
-  (@branch_north, 'General Consultation', 'C', '#1E3A8A', 1),
-  (@branch_north, 'Vaccination',          'V', '#059669', 2),
-  (@branch_north, 'Grooming',             'G', '#D97706', 3),
-  (@branch_north, 'Emergency',            'E', '#DC2626', 4);
+  (@branch_north, 'General Consultation', 'C', '#1E3A8A', 1);
 
 INSERT INTO qms_counters (branch_id, name, service_type_id) VALUES
-  (@branch_main, 'Counter 1 - Consultation', (SELECT id FROM qms_service_types WHERE branch_id = @branch_main AND prefix = 'C' LIMIT 1)),
-  (@branch_main, 'Counter 2 - Vaccination',  (SELECT id FROM qms_service_types WHERE branch_id = @branch_main AND prefix = 'V' LIMIT 1)),
-  (@branch_main, 'Counter 3 - Grooming',     (SELECT id FROM qms_service_types WHERE branch_id = @branch_main AND prefix = 'G' LIMIT 1));
+  (@branch_main, 'OPD Counter 1', (SELECT id FROM qms_service_types WHERE branch_id = @branch_main AND prefix = 'C' LIMIT 1)),
+  (@branch_north, 'OPD Counter 1', (SELECT id FROM qms_service_types WHERE branch_id = @branch_north AND prefix = 'C' LIMIT 1));
 
 -- bcrypt hash for: Petzone@123
 INSERT INTO qms_users (org_id, branch_id, name, email, password_hash, role) VALUES
