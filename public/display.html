@@ -4,31 +4,264 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PetZone - Queue Display</title>
-  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    }
+
+    body {
+      background: linear-gradient(160deg, #0a1628 0%, #1e3a8a 55%, #1e40af 100%);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top bar ── */
+    .tv-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 40px;
+      background: rgba(0,0,0,0.25);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+    }
+
+    .tv-header img { height: 52px; filter: brightness(0) invert(1); }
+
+    .tv-header-center { text-align: center; }
+    .tv-header-center h1 {
+      font-size: clamp(22px, 2.5vw, 36px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .tv-header-center p {
+      font-size: 14px;
+      opacity: 0.55;
+      margin-top: 2px;
+    }
+
+    .tv-clock {
+      font-size: clamp(28px, 3vw, 42px);
+      font-weight: 300;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.05em;
+      min-width: 140px;
+      text-align: right;
+    }
+
+    /* ── Main serving area ── */
+    .tv-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 28px 40px 20px;
+      min-height: 0;
+    }
+
+    .tv-section-title {
+      font-size: 15px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      opacity: 0.45;
+      margin-bottom: 20px;
+    }
+
+    #nowServing {
+      flex: 1;
+      display: grid;
+      gap: 24px;
+      align-content: stretch;
+      min-height: 0;
+    }
+
+    /* OPD card */
+    .opd-card {
+      background: rgba(255,255,255,0.07);
+      border: 2px solid rgba(255,255,255,0.12);
+      border-radius: 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.3s, box-shadow 0.3s, background 0.3s;
+    }
+
+    .opd-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 5px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 28px 28px 0 0;
+    }
+
+    .opd-card.active {
+      background: rgba(255,255,255,0.13);
+      border-color: #ffb6c1;
+      box-shadow: 0 0 60px rgba(255,182,193,0.2), inset 0 0 40px rgba(255,182,193,0.05);
+    }
+
+    .opd-card.active::before {
+      background: linear-gradient(90deg, #ffb6c1, #f472b6);
+    }
+
+    .opd-card.flash {
+      animation: cardFlash 1.4s ease;
+    }
+
+    @keyframes cardFlash {
+      0%   { transform: scale(1); }
+      20%  { transform: scale(1.03); box-shadow: 0 0 80px rgba(255,255,255,0.4); }
+      100% { transform: scale(1); }
+    }
+
+    .opd-room {
+      font-size: clamp(20px, 2.2vw, 32px);
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      margin-bottom: 8px;
+    }
+
+    .opd-card.active .opd-room { opacity: 1; color: #ffb6c1; }
+
+    .opd-number {
+      font-size: clamp(80px, 14vw, 160px);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      color: #ffb6c1;
+      text-shadow: 0 4px 40px rgba(255,182,193,0.45);
+    }
+
+    .opd-card.idle .opd-number {
+      font-size: clamp(60px, 10vw, 100px);
+      color: rgba(255,255,255,0.15);
+      text-shadow: none;
+    }
+
+    .opd-hint {
+      margin-top: 12px;
+      font-size: clamp(14px, 1.4vw, 20px);
+      font-weight: 600;
+      opacity: 0.5;
+      text-align: center;
+      padding: 0 12px;
+    }
+
+    .opd-card.active .opd-hint {
+      opacity: 0.85;
+      color: #fff;
+    }
+
+    .opd-card.active .opd-hint.serving { color: #86efac; }
+
+    /* ── Bottom waiting strip ── */
+    .tv-footer {
+      flex-shrink: 0;
+      margin: 0 40px 28px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .tv-footer-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .tv-footer-label {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      opacity: 0.45;
+    }
+
+    .tv-footer-waiting {
+      font-size: clamp(16px, 1.8vw, 22px);
+      font-weight: 600;
+    }
+
+    .tv-footer-waiting span { opacity: 0.5; font-weight: 400; }
+
+    .tv-footer-next {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .tv-footer-next-label {
+      font-size: 14px;
+      font-weight: 600;
+      opacity: 0.5;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .tv-footer-next-num {
+      font-size: clamp(36px, 5vw, 56px);
+      font-weight: 900;
+      color: #ffb6c1;
+      line-height: 1;
+    }
+
+    .tv-footer-clear {
+      font-size: 18px;
+      opacity: 0.4;
+      font-style: italic;
+    }
+  </style>
 </head>
-<body class="display-screen">
-  <div class="display-header">
-    <img src="/assets/petzonelogo.png" alt="PetZone" class="logo-lg" style="filter: brightness(0) invert(1);" onerror="this.src='/assets/petzonelogo.svg'">
-    <div style="text-align: center;">
-      <h1 id="branchName" style="font-size: 32px;">PetZone Clinic</h1>
-      <p id="orgName" style="opacity: 0.7;"></p>
+<body>
+  <header class="tv-header">
+    <img src="/assets/petzonelogo.png" alt="PetZone" onerror="this.style.display='none'">
+    <div class="tv-header-center">
+      <h1 id="branchName">PetZone Clinic</h1>
+      <p id="orgName"></p>
     </div>
-    <div class="clock" id="clock"></div>
-  </div>
+    <div class="tv-clock" id="clock">--:--:--</div>
+  </header>
 
-  <h2 style="font-size: 28px; margin-bottom: 20px; opacity: 0.9;">Now Serving</h2>
-  <div id="nowServing" class="opd-serving-grid">
-    <div class="opd-serving-card pulse">
-      <div class="opd-label">Loading...</div>
-      <div class="number">—</div>
+  <main class="tv-main">
+    <div class="tv-section-title">Now Serving</div>
+    <div id="nowServing">
+      <div class="opd-card idle">
+        <div class="opd-room">Loading</div>
+        <div class="opd-number">—</div>
+      </div>
     </div>
-  </div>
+  </main>
 
-  <div class="waiting-panel">
-    <h2 style="font-size: 24px; margin-bottom: 16px;">Waiting Queue</h2>
-    <div id="waitingList"></div>
-    <div id="waitingMeta" style="margin-top: 12px; opacity: 0.6; font-size: 14px;"></div>
-  </div>
+  <footer class="tv-footer">
+    <div class="tv-footer-left">
+      <div class="tv-footer-label">Waiting</div>
+      <div id="waitingInfo" class="tv-footer-waiting">—</div>
+    </div>
+    <div class="tv-footer-next">
+      <div class="tv-footer-next-label">Up Next</div>
+      <div class="tv-footer-next-num" id="nextNum">—</div>
+    </div>
+  </footer>
 
   <script>
     const parts = location.pathname.split('/').filter(Boolean);
@@ -36,41 +269,52 @@
     const branchSlug = parts[2] || 'main';
     const prevServing = new Map();
 
+    function displayNum(code) {
+      if (!code) return null;
+      const stripped = String(code).replace(/^[A-Za-z]+/, '');
+      const num = parseInt(stripped, 10);
+      return Number.isNaN(num) ? stripped : String(num);
+    }
+
     function updateClock() {
       document.getElementById('clock').textContent = new Date().toLocaleTimeString([], {
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
       });
     }
 
     function renderOpdCards(byCounter) {
-      const servingEl = document.getElementById('nowServing');
-      const cols = Math.min(Math.max(byCounter.length, 1), 4);
+      const el = document.getElementById('nowServing');
+      const count = Math.max(byCounter.length, 1);
 
-      servingEl.className = 'opd-serving-grid';
-      servingEl.style.setProperty('--opd-cols', cols);
+      el.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
 
       if (!byCounter.length) {
-        servingEl.innerHTML = `
-          <div class="opd-serving-card pulse">
-            <div class="opd-label">Consultancy</div>
-            <div class="number">—</div>
-            <div class="opd-status">No OPD counters configured</div>
+        el.innerHTML = `
+          <div class="opd-card idle">
+            <div class="opd-room">Consultancy</div>
+            <div class="opd-number">—</div>
+            <div class="opd-hint">No OPD stations configured</div>
           </div>`;
         return;
       }
 
-      servingEl.innerHTML = byCounter.map((row) => {
+      el.innerHTML = byCounter.map((row) => {
         const key = String(row.counter_id);
+        const num = displayNum(row.ticket_code);
         const changed = prevServing.get(key) !== row.ticket_code;
         prevServing.set(key, row.ticket_code);
-        const active = row.ticket_code ? 'is-active' : 'is-idle';
-        const flash = changed && row.ticket_code ? ' just-called' : '';
+        const isActive = Boolean(num);
+        const flash = changed && isActive ? ' flash' : '';
+        const serving = row.status === 'serving';
+        const hint = isActive
+          ? (serving ? 'In consultation' : 'Please proceed to room')
+          : 'Waiting for patient';
 
         return `
-          <div class="opd-serving-card ${active}${flash}" data-counter="${key}">
-            <div class="opd-label">${row.counter_label || row.counter_name}</div>
-            <div class="number">${row.ticket_code || '—'}</div>
-            <div class="opd-status">${row.ticket_code ? (row.status === 'serving' ? 'In consultation' : 'Please proceed') : 'Waiting for patient'}</div>
+          <div class="opd-card ${isActive ? 'active' : 'idle'}${flash}" data-counter="${key}">
+            <div class="opd-room">${row.counter_label || row.counter_name}</div>
+            <div class="opd-number">${num || '—'}</div>
+            <div class="opd-hint${serving ? ' serving' : ''}">${hint}</div>
           </div>`;
       }).join('');
     }
@@ -83,26 +327,26 @@
 
         const d = json.data;
         document.getElementById('branchName').textContent = d.branch.name;
-        document.getElementById('orgName').textContent = d.branch.org_name;
+        document.getElementById('orgName').textContent = d.branch.org_name || '';
 
         renderOpdCards(d.by_counter || []);
 
         const waiting = d.waiting_by_service || [];
-        const totalWaiting = waiting.reduce((sum, w) => sum + (w.waiting_count || 0), 0);
-        const nextTicket = waiting.find((w) => w.next_ticket)?.next_ticket;
+        const totalWaiting = waiting.reduce((s, w) => s + (w.waiting_count || 0), 0);
+        const nextRaw = waiting.find((w) => w.next_ticket)?.next_ticket;
+        const nextNum = displayNum(nextRaw);
 
-        document.getElementById('waitingList').innerHTML = waiting.length
-          ? waiting.map((w) => `
-              <div class="waiting-row">
-                <span>${w.name} <span style="opacity:0.5;">(${w.waiting_count} waiting)</span></span>
-                <span class="next-num">${w.next_ticket || '—'}</span>
-              </div>
-            `).join('')
-          : '<div class="waiting-row"><span>No patients waiting</span><span class="next-num">—</span></div>';
+        const waitingEl = document.getElementById('waitingInfo');
+        const nextEl = document.getElementById('nextNum');
 
-        document.getElementById('waitingMeta').textContent =
-          totalWaiting > 0 ? `Next in queue: ${nextTicket || '—'} · ${totalWaiting} patient(s) waiting` : 'Queue is clear';
-      } catch (e) { /* silent refresh */ }
+        if (totalWaiting > 0) {
+          waitingEl.innerHTML = `<strong>${totalWaiting}</strong> <span>patient${totalWaiting !== 1 ? 's' : ''} in queue</span>`;
+          nextEl.textContent = nextNum || '—';
+        } else {
+          waitingEl.innerHTML = '<span class="tv-footer-clear">Queue is clear</span>';
+          nextEl.textContent = '—';
+        }
+      } catch (_) { /* silent */ }
     }
 
     updateClock();
