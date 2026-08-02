@@ -168,16 +168,31 @@ th { font-size: 13px; color: var(--gray-500); text-transform: uppercase; letter-
 .ticket-slip .meta { font-size: 13px; color: var(--gray-500); margin-top: 12px; }
 
 @media print {
+  @page { size: 80mm auto; margin: 4mm; }
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
   body * { visibility: hidden; }
   .ticket-slip, .ticket-slip * { visibility: visible; }
   .ticket-slip {
     position: fixed;
     left: 50%;
-    top: 20px;
+    top: 8px;
     transform: translateX(-50%);
     border: 2px solid #000;
+    width: 72mm;
+    max-width: 72mm;
+    padding: 8px;
+    display: block !important;
   }
-  .no-print { display: none !important; }
+  .no-print,
+  .header,
+  #printerBar,
+  #stepSelect,
+  #stepDetails { display: none !important; }
+  #stepTicket { display: block !important; }
 }
 
 .kiosk-service-btn {

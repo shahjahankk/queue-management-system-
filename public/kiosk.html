@@ -15,16 +15,24 @@
     </div>
   </header>
 
-  <div class="container no-print">
-    <div id="alert" class="alert hidden"></div>
+  <div class="container">
+    <div id="alert" class="alert hidden no-print"></div>
 
-    <div id="stepSelect" class="card">
+    <div id="printerBar" class="no-print" style="display:flex;gap:8px;justify-content:center;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+      <button type="button" class="btn btn-outline" id="btnConnectUsb">USB</button>
+      <button type="button" class="btn btn-outline" id="btnConnectSerial">Serial / COM</button>
+      <button type="button" class="btn btn-outline" id="btnConnectAuto">Auto</button>
+      <button type="button" class="btn btn-outline" id="btnSystemPrint">System Print</button>
+      <span id="printerStatus" style="font-size:13px;color:var(--gray-500);"></span>
+    </div>
+
+    <div id="stepSelect" class="card no-print">
       <h2 style="color: var(--blue); margin-bottom: 8px; text-align: center;">Consultancy Queue Token</h2>
       <p style="text-align: center; color: var(--gray-500); margin-bottom: 24px;">Tap below to issue the next OPD consultancy token</p>
       <div id="servicesGrid" class="grid-3"></div>
     </div>
 
-    <div id="stepDetails" class="card hidden">
+    <div id="stepDetails" class="card hidden no-print">
       <h2 style="color: var(--blue); margin-bottom: 16px;">Consultancy Details (Optional)</h2>
       <p style="color: var(--gray-500); margin-bottom: 20px;">Selected: <strong id="selectedServiceName"></strong></p>
       <div class="form-group">
@@ -55,13 +63,14 @@
         <p style="margin-top: 16px; font-size: 14px; color: var(--gray-500);">Please wait for your number to be called</p>
       </div>
       <div style="text-align: center; margin-top: 24px;" class="no-print">
-        <button class="btn btn-primary" onclick="window.print()">Print Ticket</button>
+        <button class="btn btn-primary" id="btnPrintTicket">Print Ticket</button>
         <button class="btn btn-pink" id="btnNewTicket" style="margin-left: 12px;">Take Another Ticket</button>
       </div>
     </div>
   </div>
 
   <script src="/js/app.js"></script>
+  <script src="/js/thermalPrinter.js"></script>
   <script>
     const parts = location.pathname.split('/').filter(Boolean);
     const orgSlug = parts[1] || 'petzone';
@@ -69,6 +78,100 @@
 
     let branchData = null;
     let selectedService = null;
+    let lastTicket = null;
+    let preferBrowser = false;
+
+    function setPrinterStatus(text, ok) {
+      const el = document.getElementById('printerStatus');
+      el.textContent = text;
+      el.style.color = ok ? '#059669' : 'var(--gray-500)';
+    }
+
+    function transportLabel(t) {
+      if (t === 'usb') return 'USB printer ready';
+      if (t === 'serial') return 'Serial/COM printer ready';
+      if (t === 'system') return 'System print mode';
+      return 'Printer ready';
+    }
+
+    async function refreshPrinterStatus() {
+      const usbBtn = document.getElementById('btnConnectUsb');
+      const serialBtn = document.getElementById('btnConnectSerial');
+      const autoBtn = document.getElementById('btnConnectAuto');
+
+      if (!window.QmsThermal?.isThermalPrintingSupported()) {
+        setPrinterStatus(QmsThermal.getPrinterSupportMessage(), false);
+        usbBtn.style.display = 'none';
+        serialBtn.style.display = 'none';
+        autoBtn.style.display = 'none';
+        preferBrowser = true;
+        return;
+      }
+
+      usbBtn.style.display = QmsThermal.isWebUsbSupported() ? '' : 'none';
+      serialBtn.style.display = QmsThermal.isWebSerialSupported() ? '' : 'none';
+
+      if (QmsThermal.isSystemPrinterMode()) {
+        preferBrowser = true;
+        setPrinterStatus(transportLabel('system'), true);
+        return;
+      }
+
+      const n = await QmsThermal.getGrantedPrinterCount();
+      if (n > 0) {
+        await QmsThermal.restoreCachedPrinter();
+        setPrinterStatus(transportLabel(QmsThermal.getActiveTransport()), true);
+        preferBrowser = false;
+      } else {
+        setPrinterStatus(QmsThermal.getPrinterSupportMessage(), false);
+      }
+    }
+
+    async function onConnected(result, label) {
+      preferBrowser = false;
+      setPrinterStatus(transportLabel(result.transport), true);
+      showAlert(document.getElementById('alert'), label, 'success');
+    }
+
+    document.getElementById('btnConnectUsb').addEventListener('click', async () => {
+      try {
+        const result = await QmsThermal.connectUsbPrinter();
+        await onConnected(result, 'USB printer connected');
+      } catch (err) {
+        setPrinterStatus(err.message, false);
+        showAlert(document.getElementById('alert'), err.message);
+      }
+    });
+
+    document.getElementById('btnConnectSerial').addEventListener('click', async () => {
+      try {
+        const result = await QmsThermal.connectSerialPrinter();
+        await onConnected(result, 'Serial/COM printer connected');
+      } catch (err) {
+        setPrinterStatus(err.message, false);
+        showAlert(document.getElementById('alert'), err.message);
+      }
+    });
+
+    document.getElementById('btnConnectAuto').addEventListener('click', async () => {
+      try {
+        const result = await QmsThermal.connectThermalPrinter();
+        await onConnected(
+          result,
+          result.transport === 'serial' ? 'Serial/COM printer connected' : 'USB printer connected'
+        );
+      } catch (err) {
+        setPrinterStatus(err.message, false);
+        showAlert(document.getElementById('alert'), err.message);
+      }
+    });
+
+    document.getElementById('btnSystemPrint').addEventListener('click', () => {
+      QmsThermal.connectSystemPrinter();
+      preferBrowser = true;
+      setPrinterStatus(transportLabel('system'), true);
+      showAlert(document.getElementById('alert'), 'System print mode enabled', 'success');
+    });
 
     async function loadBranch() {
       const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}`);
@@ -101,6 +204,21 @@
       document.getElementById('stepSelect').classList.remove('hidden');
     });
 
+    async function printLastTicket() {
+      if (!lastTicket) return;
+      const result = await QmsThermal.printQueueTicket(lastTicket, { preferBrowser });
+      if (result.success) {
+        showAlert(
+          document.getElementById('alert'),
+          result.message || 'Printed',
+          'success'
+        );
+      } else {
+        showAlert(document.getElementById('alert'), result.message || 'Print failed');
+      }
+      return result;
+    }
+
     document.getElementById('btnGetTicket').addEventListener('click', async () => {
       const btn = document.getElementById('btnGetTicket');
       btn.disabled = true;
@@ -118,6 +236,7 @@
         if (!json.success) throw new Error(json.message);
 
         const t = json.data;
+        lastTicket = t;
         document.getElementById('slipService').textContent = t.service_name;
         document.getElementById('slipNumber').textContent = t.ticket_code;
         document.getElementById('slipNumber').style.color = t.color;
@@ -129,8 +248,20 @@
 
         document.getElementById('stepDetails').classList.add('hidden');
         document.getElementById('stepTicket').classList.remove('hidden');
+
+        await printLastTicket();
       } catch (err) {
         showAlert(document.getElementById('alert'), err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('btnPrintTicket').addEventListener('click', async () => {
+      const btn = document.getElementById('btnPrintTicket');
+      btn.disabled = true;
+      try {
+        await printLastTicket();
       } finally {
         btn.disabled = false;
       }
@@ -142,8 +273,10 @@
       document.getElementById('petName').value = '';
       document.getElementById('ownerName').value = '';
       selectedService = null;
+      lastTicket = null;
     });
 
+    refreshPrinterStatus();
     loadBranch().catch(err => showAlert(document.getElementById('alert'), err.message));
   </script>
 </body>
