@@ -452,159 +452,151 @@
     return esc(0x1b, 0x64, Math.max(0, Math.min(255, n)));
   }
 
-  function toAbsoluteUrl(logoUrl) {
-    if (!logoUrl) return null;
-    if (/^https?:|^data:/i.test(logoUrl)) return logoUrl;
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return `${origin}${logoUrl.startsWith('/') ? '' : '/'}${logoUrl}`;
-  }
-
-  async function loadLogoImage(absolute) {
-    const img = new Image();
-    const sameOrigin =
-      absolute.startsWith('data:') ||
-      (typeof window !== 'undefined' && absolute.startsWith(window.location.origin));
-    if (!sameOrigin) img.crossOrigin = 'anonymous';
-    await new Promise((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('logo load failed'));
-      img.src = absolute;
-    });
-    return img;
+  /** Feed past cutter then full cut — keeps footer fully on the slip */
+  function cutSafe() {
+    return esc(0x1d, 0x56, 0x41, 0x68);
   }
 
   /**
-   * Raster logo for TM-T88V (GS v 0). Tries SVG then PNG under /assets/.
+   * Draw PetZone mark for thermal (SVG text often does not rasterize).
    */
+  function drawPetzoneLogoCanvas(maxWidthDots = 384) {
+    const w = Math.floor(maxWidthDots / 8) * 8;
+    const h = Math.max(64, Math.round(w * 0.28));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+
+    const cy = h / 2;
+    const r = Math.round(h * 0.38);
+    const cx = r + 4;
+
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx, cy - r * 0.12, r * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+
+    const textX = cx + r + Math.round(w * 0.04);
+    ctx.fillStyle = '#000000';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${Math.round(h * 0.42)}px Arial, Helvetica, sans-serif`;
+    ctx.fillText('Petzone', textX, cy - h * 0.12);
+    ctx.font = `${Math.round(h * 0.22)}px Arial, Helvetica, sans-serif`;
+    ctx.fillText('POS', textX, cy + h * 0.28);
+    return canvas;
+  }
+
+  function canvasToEscPosRaster(canvas) {
+    const w = Math.floor(canvas.width / 8) * 8;
+    const h = canvas.height;
+    if (w < 8 || h < 1) return [];
+    const ctx = canvas.getContext('2d');
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const bytesPerRow = w / 8;
+    const raster = new Uint8Array(bytesPerRow * h);
+    let blackCount = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * canvas.width + x) * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        if (a > 40 && !(r > 245 && g > 245 && b > 245)) {
+          raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
+          blackCount += 1;
+        }
+      }
+    }
+    if (blackCount < 20) return [];
+    return [
+      0x1d, 0x76, 0x30, 0x00,
+      bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff,
+      h & 0xff, (h >> 8) & 0xff,
+      ...raster,
+    ];
+  }
+
   async function logoToEscPosRaster(maxWidthDots = 384) {
     if (typeof window === 'undefined') return [];
-    const candidates = ['/assets/petzonelogo.svg', '/assets/petzonelogo.png', '/petzonelogo.svg'];
-
-    for (const candidate of candidates) {
-      try {
-        const absolute = toAbsoluteUrl(candidate);
-        const img = await loadLogoImage(absolute);
-        let w = img.naturalWidth || img.width || 512;
-        let h = img.naturalHeight || img.height || 128;
-        if (!w || !h) {
-          w = 512;
-          h = 128;
-        }
-        if (w > maxWidthDots) {
-          h = Math.round((h * maxWidthDots) / w);
-          w = maxWidthDots;
-        }
-        if (h < 48) {
-          const scale = 48 / h;
-          h = 48;
-          w = Math.floor((w * scale) / 8) * 8;
-        }
-        w = Math.floor(w / 8) * 8;
-        if (w < 8) continue;
-
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
-
-        const { data } = ctx.getImageData(0, 0, w, h);
-        const bytesPerRow = w / 8;
-        const raster = new Uint8Array(bytesPerRow * h);
-        let blackCount = 0;
-
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            const i = (y * w + x) * 4;
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            const a = data[i + 3];
-            const nearWhite = r > 245 && g > 245 && b > 245;
-            if (a > 40 && !nearWhite) {
-              raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
-              blackCount += 1;
-            }
-          }
-        }
-        if (blackCount < 20) continue;
-
-        const xL = bytesPerRow & 0xff;
-        const xH = (bytesPerRow >> 8) & 0xff;
-        const yL = h & 0xff;
-        const yH = (h >> 8) & 0xff;
-        return [0x1d, 0x76, 0x30, 0x00, xL, xH, yL, yH, ...raster];
-      } catch (e) {
-        /* try next */
-      }
+    try {
+      const drawn = canvasToEscPosRaster(drawPetzoneLogoCanvas(maxWidthDots));
+      if (drawn.length) return drawn;
+    } catch (e) {
+      /* fall through */
     }
     return [];
   }
 
-  async function buildTokenEscPos({ ticketCode, serviceName, branchName }) {
+  async function buildTokenEscPos({
+    ticketCode,
+    serviceName,
+    branchName,
+    waitingAhead,
+    issuedAt,
+    petName,
+  }) {
     const out = [];
-    out.push(...esc(0x1b, 0x40)); // init
-    out.push(...esc(0x1b, 0x61, 0x01)); // center
+    out.push(...esc(0x1b, 0x40));
+    out.push(...esc(0x1b, 0x61, 0x01));
 
-    let logoPrinted = false;
     try {
       const logo = await logoToEscPosRaster(384);
       if (logo.length) {
         out.push(...logo);
         out.push(...feed(1));
-        logoPrinted = true;
       }
     } catch (e) {
       /* optional */
     }
 
-    // Brand name — large + bold
+    // Match kiosk slip: PetZone → service → big number → meta → wait message
     out.push(...charSize(0x11));
     out.push(...boldOn());
     out.push(...line('PetZone'));
     out.push(...boldOff());
     out.push(...charSize(0x00));
 
-    if (!logoPrinted) {
-      out.push(...boldOn());
-      out.push(...line('QUEUE TOKEN'));
-      out.push(...boldOff());
-    }
-
     if (serviceName) {
-      out.push(...boldOn());
       out.push(...line(String(serviceName).slice(0, 42)));
-      out.push(...boldOff());
     }
 
-    out.push(...line('=========================================='));
     out.push(...feed(1));
-
-    // Ticket number — very large
-    out.push(...charSize(0x22)); // 3× width/height-ish (2+1)
+    out.push(...charSize(0x22));
     out.push(...boldOn());
     out.push(...line(String(ticketCode || '---')));
     out.push(...boldOff());
     out.push(...charSize(0x00));
     out.push(...feed(1));
-    out.push(...line('=========================================='));
 
-    if (branchName) {
-      out.push(...boldOn());
-      out.push(...line(String(branchName).slice(0, 42)));
-      out.push(...boldOff());
+    if (branchName) out.push(...line(String(branchName).slice(0, 42)));
+    if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 36)}`));
+
+    const ahead = Number(waitingAhead);
+    if (Number.isFinite(ahead) && ahead > 0) {
+      out.push(...line(`${ahead} patient(s) ahead of you`));
+    } else if (Number.isFinite(ahead) && ahead === 0) {
+      out.push(...line('You are next in queue!'));
     }
-    out.push(...line(new Date().toLocaleString()));
+
+    const when = issuedAt ? new Date(issuedAt) : new Date();
+    out.push(...line(when.toLocaleString()));
     out.push(...feed(1));
-    out.push(...boldOn());
-    out.push(...line('Please wait to be called'));
-    out.push(...boldOff());
-    out.push(...line(''));
+    out.push(...line('Please wait for your number to be called'));
+    out.push(...feed(1));
     out.push(...line('Powered by Tychora'));
-    out.push(...feed(3));
-    out.push(...esc(0x1d, 0x56, 0x00)); // cut
+    out.push(...line(''));
+    out.push(...line(''));
+    out.push(...feed(4));
+    out.push(...cutSafe());
     return new Uint8Array(out);
   }
 
@@ -643,6 +635,9 @@
       ticketCode: ticket.ticket_code || ticket.ticket_number,
       serviceName: ticket.service_name,
       branchName: ticket.branch_name,
+      waitingAhead: ticket.waiting_ahead,
+      issuedAt: ticket.issued_at,
+      petName: ticket.pet_name,
     });
 
     // Explicit System Print path only
