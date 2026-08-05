@@ -452,12 +452,12 @@
     return esc(0x1b, 0x64, Math.max(0, Math.min(255, n)));
   }
 
-  /** Feed well past cutter then full cut */
+  /** Enough margin for cutter without a long blank strip */
   function cutSafe() {
     return [
-      0x0a, 0x0a, 0x0a,
-      0x1b, 0x64, 0x0c,
-      0x1d, 0x56, 0x41, 0xff,
+      0x0a, 0x0a,
+      0x1b, 0x64, 0x06,
+      0x1d, 0x56, 0x41, 0x40,
     ];
   }
 
@@ -541,19 +541,14 @@
         let h = img.naturalHeight || img.height;
         if (!w || !h) continue;
 
-        const targetW = Math.min(maxWidthDots, 512);
+        const targetW = Math.min(maxWidthDots, 320);
         if (w > targetW) {
           h = Math.round((h * targetW) / w);
           w = targetW;
         }
-        if (h < 72) {
-          const scale = 72 / h;
-          h = 72;
-          w = Math.floor((w * scale) / 8) * 8;
-          if (w > 512) {
-            h = Math.round((h * 512) / w);
-            w = 512;
-          }
+        if (h > 96) {
+          w = Math.floor((w * 96) / h / 8) * 8;
+          h = 96;
         }
         w = Math.floor(w / 8) * 8;
         if (w < 8) continue;
@@ -589,34 +584,33 @@
     out.push(...esc(0x1b, 0x61, 0x01));
 
     try {
-      const logo = await logoToEscPosRaster(448);
+      const logo = await logoToEscPosRaster(320);
       if (logo.length) {
         out.push(...logo);
-        out.push(...feed(1));
       }
     } catch (e) {
       /* optional */
     }
 
-    // Bold double-height title (avoid GS ! outline look)
-    out.push(...esc(0x1b, 0x21, 0x18));
+    out.push(...esc(0x1b, 0x4d, 0x01)); // Font B — compact
+    out.push(...boldOn());
     out.push(...line('PetZone'));
-    out.push(...esc(0x1b, 0x21, 0x00));
+    out.push(...boldOff());
 
     if (serviceName) {
-      out.push(...line(String(serviceName).slice(0, 42)));
+      out.push(...line(String(serviceName).slice(0, 48)));
     }
 
-    out.push(...feed(1));
-    out.push(...esc(0x1b, 0x21, 0x30)); // double W+H for ticket code
+    out.push(...esc(0x1b, 0x4d, 0x00)); // Font A for ticket number
+    out.push(...esc(0x1b, 0x21, 0x30)); // double size number only
     out.push(...boldOn());
     out.push(...line(String(ticketCode || '---')));
     out.push(...boldOff());
     out.push(...esc(0x1b, 0x21, 0x00));
-    out.push(...feed(1));
+    out.push(...esc(0x1b, 0x4d, 0x01)); // back to Font B
 
-    if (branchName) out.push(...line(String(branchName).slice(0, 42)));
-    if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 36)}`));
+    if (branchName) out.push(...line(String(branchName).slice(0, 48)));
+    if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 42)}`));
 
     const ahead = Number(waitingAhead);
     if (Number.isFinite(ahead) && ahead > 0) {
@@ -627,10 +621,9 @@
 
     const when = issuedAt ? new Date(issuedAt) : new Date();
     out.push(...line(when.toLocaleString()));
-    out.push(...feed(1));
     out.push(...line('Please wait for your number to be called'));
-    out.push(...feed(1));
     out.push(...line('Powered by Tychora'));
+    out.push(...esc(0x1b, 0x4d, 0x00));
     out.push(...cutSafe());
     return new Uint8Array(out);
   }
