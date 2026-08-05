@@ -5,6 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PetZone Kiosk - Consultancy Token</title>
   <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    .printer-btn.active-direct {
+      border-color: #059669 !important;
+      background: #ecfdf5 !important;
+      color: #065f46 !important;
+    }
+    .printer-btn.active-system {
+      border-color: #2563eb !important;
+      background: #eff6ff !important;
+    }
+    .printer-btn.recommend {
+      box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.35);
+      font-weight: 700;
+    }
+    #usbBlockedHint {
+      display: none;
+      margin: 0 auto 16px;
+      max-width: 640px;
+      text-align: left;
+    }
+  </style>
 </head>
 <body>
   <header class="header no-print">
@@ -18,11 +39,18 @@
   <div class="container">
     <div id="alert" class="alert hidden no-print"></div>
 
+    <div id="usbBlockedHint" class="alert alert-error no-print">
+      <strong>USB blocked by Windows driver.</strong>
+      For silent printing (no Chrome dialog): click <strong>Serial / COM</strong> below and select your Epson if listed.
+      If nothing appears, install WinUSB with <strong>Zadig</strong> for the Epson, then click USB again.
+      <em>System Print always opens the Chrome dialog — avoid it for direct print.</em>
+    </div>
+
     <div id="printerBar" class="no-print" style="display:flex;gap:8px;justify-content:center;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
-      <button type="button" class="btn btn-outline" id="btnConnectUsb">USB</button>
-      <button type="button" class="btn btn-outline" id="btnConnectSerial">Serial / COM</button>
-      <button type="button" class="btn btn-outline" id="btnConnectAuto">Auto</button>
-      <button type="button" class="btn btn-outline" id="btnSystemPrint">System Print</button>
+      <button type="button" class="btn btn-outline printer-btn" id="btnConnectUsb">USB</button>
+      <button type="button" class="btn btn-outline printer-btn" id="btnConnectSerial">Serial / COM</button>
+      <button type="button" class="btn btn-outline printer-btn" id="btnConnectAuto">Auto</button>
+      <button type="button" class="btn btn-outline printer-btn" id="btnSystemPrint">System Print</button>
       <span id="printerStatus" style="font-size:13px;color:var(--gray-500);"></span>
     </div>
 
@@ -79,7 +107,8 @@
     let branchData = null;
     let selectedService = null;
     let lastTicket = null;
-    let preferBrowser = false;
+    let preferBrowser = false; // ONLY true when user clicks System Print
+    let activeTransport = null;
 
     function setPrinterStatus(text, ok) {
       const el = document.getElementById('printerStatus');
@@ -88,10 +117,32 @@
     }
 
     function transportLabel(t) {
-      if (t === 'usb') return 'USB printer ready';
-      if (t === 'serial') return 'Serial/COM printer ready';
-      if (t === 'system') return 'System print mode';
+      if (t === 'usb') return 'USB ready — silent print';
+      if (t === 'serial') return 'Serial/COM ready — silent print';
+      if (t === 'system') return 'System Print — Chrome dialog';
       return 'Printer ready';
+    }
+
+    function clearBtnStyles() {
+      document.querySelectorAll('.printer-btn').forEach((b) => {
+        b.classList.remove('active-direct', 'active-system', 'recommend');
+      });
+    }
+
+    function markUsbBlockedUi(show) {
+      const hint = document.getElementById('usbBlockedHint');
+      const serialBtn = document.getElementById('btnConnectSerial');
+      hint.style.display = show ? 'block' : 'none';
+      clearBtnStyles();
+      if (show) serialBtn.classList.add('recommend');
+    }
+
+    function markActive(transport) {
+      clearBtnStyles();
+      activeTransport = transport;
+      if (transport === 'usb') document.getElementById('btnConnectUsb').classList.add('active-direct');
+      if (transport === 'serial') document.getElementById('btnConnectSerial').classList.add('active-direct');
+      if (transport === 'system') document.getElementById('btnSystemPrint').classList.add('active-system');
     }
 
     async function refreshPrinterStatus() {
@@ -111,26 +162,36 @@
       usbBtn.style.display = QmsThermal.isWebUsbSupported() ? '' : 'none';
       serialBtn.style.display = QmsThermal.isWebSerialSupported() ? '' : 'none';
 
-      if (QmsThermal.isSystemPrinterMode()) {
-        preferBrowser = true;
+      if (QmsThermal.getLastErrorCode() === 'usb_blocked') {
+        markUsbBlockedUi(true);
+      }
+
+      const paired = await QmsThermal.hasDirectPrinterPaired();
+      if (paired) {
+        await QmsThermal.restoreCachedPrinter();
+        preferBrowser = false;
+        markUsbBlockedUi(false);
+        const t = QmsThermal.getActiveTransport();
+        markActive(t);
+        setPrinterStatus(transportLabel(t), true);
+        return;
+      }
+
+      if (preferBrowser || QmsThermal.isSystemPrinterMode()) {
+        markActive('system');
         setPrinterStatus(transportLabel('system'), true);
         return;
       }
 
-      const n = await QmsThermal.getGrantedPrinterCount();
-      if (n > 0) {
-        await QmsThermal.restoreCachedPrinter();
-        setPrinterStatus(transportLabel(QmsThermal.getActiveTransport()), true);
-        preferBrowser = false;
-      } else {
-        setPrinterStatus(QmsThermal.getPrinterSupportMessage(), false);
-      }
+      setPrinterStatus(QmsThermal.getPrinterSupportMessage(), false);
     }
 
     async function onConnected(result, label) {
       preferBrowser = false;
+      markUsbBlockedUi(false);
+      markActive(result.transport);
       setPrinterStatus(transportLabel(result.transport), true);
-      showAlert(document.getElementById('alert'), label, 'success');
+      showAlert(document.getElementById('alert'), label + ' — tokens will print silently', 'success');
     }
 
     document.getElementById('btnConnectUsb').addEventListener('click', async () => {
@@ -138,6 +199,10 @@
         const result = await QmsThermal.connectUsbPrinter();
         await onConnected(result, 'USB printer connected');
       } catch (err) {
+        preferBrowser = false; // do NOT switch to system print
+        if (err.code === 'usb_blocked' || QmsThermal.getLastErrorCode() === 'usb_blocked') {
+          markUsbBlockedUi(true);
+        }
         setPrinterStatus(err.message, false);
         showAlert(document.getElementById('alert'), err.message);
       }
@@ -148,6 +213,7 @@
         const result = await QmsThermal.connectSerialPrinter();
         await onConnected(result, 'Serial/COM printer connected');
       } catch (err) {
+        preferBrowser = false;
         setPrinterStatus(err.message, false);
         showAlert(document.getElementById('alert'), err.message);
       }
@@ -161,6 +227,10 @@
           result.transport === 'serial' ? 'Serial/COM printer connected' : 'USB printer connected'
         );
       } catch (err) {
+        preferBrowser = false;
+        if (err.code === 'usb_blocked' || QmsThermal.getLastErrorCode() === 'usb_blocked') {
+          markUsbBlockedUi(true);
+        }
         setPrinterStatus(err.message, false);
         showAlert(document.getElementById('alert'), err.message);
       }
@@ -169,8 +239,14 @@
     document.getElementById('btnSystemPrint').addEventListener('click', () => {
       QmsThermal.connectSystemPrinter();
       preferBrowser = true;
+      markUsbBlockedUi(false);
+      markActive('system');
       setPrinterStatus(transportLabel('system'), true);
-      showAlert(document.getElementById('alert'), 'System print mode enabled', 'success');
+      showAlert(
+        document.getElementById('alert'),
+        'System Print will open the Chrome dialog (not silent). Prefer Serial/COM for direct print.',
+        'error'
+      );
     });
 
     async function loadBranch() {
@@ -206,14 +282,16 @@
 
     async function printLastTicket() {
       if (!lastTicket) return;
-      const result = await QmsThermal.printQueueTicket(lastTicket, { preferBrowser });
+      const result = await QmsThermal.printQueueTicket(lastTicket, {
+        preferBrowser,
+        allowConnectPrompt: false,
+      });
       if (result.success) {
-        showAlert(
-          document.getElementById('alert'),
-          result.message || 'Printed',
-          'success'
-        );
+        showAlert(document.getElementById('alert'), result.message || 'Printed', 'success');
       } else {
+        if (result.code === 'usb_blocked' || QmsThermal.getLastErrorCode() === 'usb_blocked') {
+          markUsbBlockedUi(true);
+        }
         showAlert(document.getElementById('alert'), result.message || 'Print failed');
       }
       return result;

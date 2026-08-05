@@ -2,7 +2,7 @@
  * QMS standalone thermal printer:
  * - WebUSB (direct Epson/Star/etc.)
  * - Web Serial (COM / USB-serial adapters)
- * - Browser/system print dialog fallback
+ * - Browser/system print dialog ONLY when user explicitly chooses System Print
  * Chrome/Edge desktop only.
  */
 (function (global) {
@@ -23,6 +23,7 @@
   let cachedTransport = null;
   let cachedUsbDevice = null;
   let cachedSerialPort = null;
+  let lastErrorCode = null; // 'usb_blocked' | 'no_serial' | etc.
 
   function isWebUsbSupported() {
     return typeof navigator !== 'undefined' && !!navigator.usb;
@@ -61,8 +62,12 @@
   }
 
   function getActiveTransport() {
-    if (isSystemPrinterMode()) return 'system';
+    if (isSystemPrinterMode() && !cachedTransport) return 'system';
     return cachedTransport;
+  }
+
+  function getLastErrorCode() {
+    return lastErrorCode;
   }
 
   function persistUsb(device) {
@@ -126,8 +131,18 @@
     return findBulkOutEndpoint(device);
   }
 
+  async function countRealDevices() {
+    let count = 0;
+    if (isWebUsbSupported()) {
+      try { count += (await navigator.usb.getDevices())?.length || 0; } catch (e) { /* ignore */ }
+    }
+    if (isWebSerialSupported()) {
+      try { count += (await navigator.serial.getPorts())?.length || 0; } catch (e) { /* ignore */ }
+    }
+    return count;
+  }
+
   async function restoreCachedPrinter() {
-    if (isSystemPrinterMode()) return null;
     if (cachedTransport === 'usb' && cachedUsbDevice) return cachedUsbDevice;
     if (cachedTransport === 'serial' && cachedSerialPort) return cachedSerialPort;
 
@@ -175,16 +190,14 @@
     }
   }
 
+  /** Real USB/Serial devices only — system mode does NOT count as connected. */
   async function getGrantedPrinterCount() {
-    if (isSystemPrinterMode()) return 1;
-    let count = 0;
-    if (isWebUsbSupported()) {
-      try { count += (await navigator.usb.getDevices())?.length || 0; } catch (e) { /* ignore */ }
-    }
-    if (isWebSerialSupported()) {
-      try { count += (await navigator.serial.getPorts())?.length || 0; } catch (e) { /* ignore */ }
-    }
-    return count;
+    return countRealDevices();
+  }
+
+  async function hasDirectPrinterPaired() {
+    if (await restoreCachedPrinter()) return true;
+    return (await countRealDevices()) > 0;
   }
 
   async function connectUsbPrinter() {
@@ -193,7 +206,18 @@
     }
     resetCache();
     setPrinterMode('direct');
-    const device = await navigator.usb.requestDevice({ filters: [] });
+    lastErrorCode = null;
+
+    let device;
+    try {
+      device = await navigator.usb.requestDevice({ filters: [] });
+    } catch (error) {
+      if (error?.name === 'NotFoundError') {
+        lastErrorCode = 'usb_not_found';
+        throw new Error('No USB device selected. Click Serial/COM if Epson is not listed under USB.');
+      }
+      throw error;
+    }
     if (!device) throw new Error('No USB printer selected');
 
     try {
@@ -205,9 +229,12 @@
     } catch (error) {
       try { if (device.opened) await device.close(); } catch (e) { /* ignore */ }
       if (error?.name === 'SecurityError' || /access|denied|claim/i.test(error?.message || '')) {
-        throw new Error(
-          'USB printer blocked by Windows driver. Use Serial/COM instead, or install WinUSB via Zadig for the Epson.'
+        lastErrorCode = 'usb_blocked';
+        const blocked = new Error(
+          'USB blocked by Windows driver. Click Serial/COM next. If Epson is not there, install WinUSB with Zadig (zadig.akeo.ie) for silent print.'
         );
+        blocked.code = 'usb_blocked';
+        throw blocked;
       }
       throw error;
     }
@@ -215,6 +242,7 @@
     cachedTransport = 'usb';
     cachedUsbDevice = device;
     persistUsb(device);
+    lastErrorCode = null;
     return { transport: 'usb', device };
   }
 
@@ -224,24 +252,36 @@
     }
     resetCache();
     setPrinterMode('direct');
+    lastErrorCode = null;
 
     let port;
     try {
-      port = await navigator.serial.requestPort({
-        filters: USB_FILTERS.map((f) => ({ usbVendorId: f.vendorId })),
-      });
+      // Unfiltered first so all COM / USB-serial adapters appear
+      port = await navigator.serial.requestPort();
     } catch (error) {
       if (error?.name === 'NotFoundError') {
-        port = await navigator.serial.requestPort();
+        try {
+          port = await navigator.serial.requestPort({
+            filters: USB_FILTERS.map((f) => ({ usbVendorId: f.vendorId })),
+          });
+        } catch (e2) {
+          lastErrorCode = 'no_serial';
+          throw new Error(
+            'No Serial/COM port found. Epson often has no COM port when Windows USB Print owns it. Install WinUSB via Zadig, or use System Print (shows Chrome dialog).'
+          );
+        }
+      } else if (error?.name === 'NotAllowedError') {
+        throw new Error('Serial permission denied. Click Serial/COM again and allow access.');
       } else {
         throw error;
       }
     }
-    if (!port) throw new Error('No serial/COM port selected');
+    if (!port) throw new Error('No serial printer port selected');
 
     cachedTransport = 'serial';
     cachedSerialPort = port;
     if (typeof port.getInfo === 'function') persistSerial(port.getInfo());
+    lastErrorCode = null;
     return { transport: 'serial', port };
   }
 
@@ -251,8 +291,22 @@
       try {
         return await connectUsbPrinter();
       } catch (error) {
-        if (error?.name !== 'NotAllowedError') errors.push(error.message || 'USB failed');
-        else errors.push('USB permission denied');
+        errors.push(error.message || 'USB failed');
+        // If USB blocked, immediately try Serial (do not go to System Print)
+        if (error.code === 'usb_blocked' || lastErrorCode === 'usb_blocked') {
+          if (isWebSerialSupported()) {
+            try {
+              return await connectSerialPrinter();
+            } catch (serialErr) {
+              errors.push(serialErr.message || 'Serial failed');
+              const combined = new Error(
+                'USB blocked by Windows. Serial/COM also unavailable. Install WinUSB via Zadig for silent print, or click System Print (dialog).'
+              );
+              combined.code = 'usb_blocked';
+              throw combined;
+            }
+          }
+        }
       }
     }
     if (isWebSerialSupported()) {
@@ -268,6 +322,7 @@
   function connectSystemPrinter() {
     resetCache();
     setPrinterMode('system');
+    lastErrorCode = null;
     return { transport: 'system' };
   }
 
@@ -326,13 +381,26 @@
   }
 
   async function writeToThermalPrinter(data) {
-    if (isSystemPrinterMode()) {
-      throw new Error('System printer mode — use browser print');
+    // Prefer silent direct even if user previously chose system mode
+    const restored = await restoreCachedPrinter();
+    if (!restored) {
+      throw new Error('Printer not connected. Click Serial/COM (recommended) or USB first.');
     }
-    await restoreCachedPrinter();
+    setPrinterMode('direct');
+
     if (cachedTransport === 'usb' && cachedUsbDevice) {
-      await writeToUsbDevice(cachedUsbDevice, data);
-      return 'usb';
+      try {
+        await writeToUsbDevice(cachedUsbDevice, data);
+        return 'usb';
+      } catch (error) {
+        if (error?.name === 'SecurityError' || /access|denied|claim/i.test(error?.message || '')) {
+          lastErrorCode = 'usb_blocked';
+          throw new Error(
+            'USB blocked by Windows while printing. Click Serial/COM and select the printer, then print again.'
+          );
+        }
+        throw error;
+      }
     }
     if (cachedTransport === 'serial' && cachedSerialPort) {
       await writeToSerialPort(cachedSerialPort, data);
@@ -382,7 +450,7 @@
       };
       const after = () => {
         window.removeEventListener('afterprint', after);
-        finish(true, 'Sent to system printer');
+        finish(true, 'Chrome print dialog opened — choose Epson');
       };
       window.addEventListener('afterprint', after);
       try {
@@ -394,62 +462,84 @@
       }
       setTimeout(() => {
         window.removeEventListener('afterprint', after);
-        finish(true, 'Sent to system printer');
+        finish(true, 'Chrome print dialog opened — choose Epson');
       }, 4000);
     });
   }
 
+  /**
+   * Silent USB/Serial by default. Browser dialog ONLY when preferBrowser=true
+   * and no direct printer is paired.
+   */
   async function printQueueTicket(ticket, { preferBrowser = false, allowConnectPrompt = false } = {}) {
-    if (preferBrowser || isSystemPrinterMode()) {
-      return printTokenBrowser();
-    }
+    const payload = buildTokenEscPos({
+      ticketCode: ticket.ticket_code || ticket.ticket_number,
+      serviceName: ticket.service_name,
+      branchName: ticket.branch_name,
+    });
 
+    // Always try silent direct first if a device is paired
     if (isThermalPrintingSupported()) {
       try {
         let restored = await restoreCachedPrinter();
         if (!restored && allowConnectPrompt) {
-          await connectThermalPrinter();
+          // Prefer Serial when USB was previously blocked
+          if (lastErrorCode === 'usb_blocked' && isWebSerialSupported()) {
+            await connectSerialPrinter();
+          } else {
+            await connectThermalPrinter();
+          }
           restored = true;
         }
-        if (restored) {
-          const transport = await writeToThermalPrinter(
-            buildTokenEscPos({
-              ticketCode: ticket.ticket_code || ticket.ticket_number,
-              serviceName: ticket.service_name,
-              branchName: ticket.branch_name,
-            })
-          );
+        if (restored || (await hasDirectPrinterPaired())) {
+          const transport = await writeToThermalPrinter(payload);
           const via = transport === 'serial' ? 'serial/COM' : 'USB';
           return {
             success: true,
             method: transport,
-            message: `Printed via ${via}`,
+            message: `Token printed via ${via} (no dialog)`,
           };
         }
       } catch (err) {
         resetCache();
-        console.warn('Thermal print failed, falling back to browser:', err);
+        console.warn('Silent thermal print failed:', err);
+        if (!preferBrowser) {
+          return {
+            success: false,
+            method: 'none',
+            code: lastErrorCode || err.code || 'print_failed',
+            message:
+              err.message ||
+              'Silent print failed. Click Serial/COM (USB is blocked on Windows), then try again.',
+          };
+        }
       }
     }
 
-    const browser = await printTokenBrowser();
+    if (preferBrowser) {
+      return printTokenBrowser();
+    }
+
     return {
-      success: browser.success,
-      method: 'browser',
-      message: browser.success
-        ? 'Print dialog opened — choose your Epson thermal printer'
-        : browser.message || 'Print failed',
+      success: false,
+      method: 'none',
+      code: lastErrorCode || 'not_connected',
+      message:
+        'Printer not connected for silent print. Click Serial/COM (recommended after USB block), or USB. System Print always shows a Chrome dialog.',
     };
   }
 
   function getPrinterSupportMessage() {
+    if (lastErrorCode === 'usb_blocked') {
+      return 'USB blocked by Windows. Click Serial/COM now for silent print.';
+    }
     if (isSystemPrinterMode()) {
-      return 'System/browser print mode — choose Epson in the print dialog.';
+      return 'System Print = Chrome dialog (not silent). Prefer Serial/COM or USB.';
     }
     if (!isThermalPrintingSupported()) {
-      return 'Use Chrome or Edge on a laptop/desktop. Phones/Safari cannot use USB or serial printers.';
+      return 'Use Chrome or Edge on a laptop/desktop.';
     }
-    return 'Use USB for direct Epson, Serial/COM for COM ports or USB-serial adapters, or System Print for the OS dialog.';
+    return 'Connect Serial/COM or USB for silent token print (no Chrome dialog).';
   }
 
   global.QmsThermal = {
@@ -458,7 +548,9 @@
     isWebSerialSupported,
     isSystemPrinterMode,
     getGrantedPrinterCount,
+    hasDirectPrinterPaired,
     getActiveTransport,
+    getLastErrorCode,
     connectUsbPrinter,
     connectSerialPrinter,
     connectThermalPrinter,
@@ -468,5 +560,6 @@
     printTokenBrowser,
     getPrinterSupportMessage,
     resetCache,
+    setPrinterMode,
   };
 })(window);
