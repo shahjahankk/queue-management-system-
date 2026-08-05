@@ -40,10 +40,12 @@
     <div id="alert" class="alert hidden no-print"></div>
 
     <div id="usbBlockedHint" class="alert alert-error no-print">
-      <strong>USB blocked by Windows driver.</strong>
-      For silent printing (no Chrome dialog): click <strong>Serial / COM</strong> below and select your Epson if listed.
-      If nothing appears, install WinUSB with <strong>Zadig</strong> for the Epson, then click USB again.
-      <em>System Print always opens the Chrome dialog — avoid it for direct print.</em>
+      <strong>Windows is blocking silent USB print to TM-T88V.</strong><br>
+      Serial/COM will stay empty for this Epson (normal).<br>
+      <strong>Fix:</strong> install WinUSB with <a href="https://zadig.akeo.ie/" target="_blank" rel="noopener">Zadig</a>
+      for interface of Epson TM-T88V → unplug/replug USB → click <strong>USB</strong> → select <strong>TM-T88V</strong>.<br>
+      Then Get My Number prints directly with <em>no</em> Chrome print dialog.<br>
+      <em>System Print always shows the Chrome dialog — avoid it if you want direct print.</em>
     </div>
 
     <div id="printerBar" class="no-print" style="display:flex;gap:8px;justify-content:center;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
@@ -155,21 +157,18 @@
         usbBtn.style.display = 'none';
         serialBtn.style.display = 'none';
         autoBtn.style.display = 'none';
-        preferBrowser = true;
         return;
       }
 
       usbBtn.style.display = QmsThermal.isWebUsbSupported() ? '' : 'none';
       serialBtn.style.display = QmsThermal.isWebSerialSupported() ? '' : 'none';
 
-      if (QmsThermal.getLastErrorCode() === 'usb_blocked') {
-        markUsbBlockedUi(true);
-      }
-
+      // Clear stale System Print mode if USB device already paired
       const paired = await QmsThermal.hasDirectPrinterPaired();
       if (paired) {
-        await QmsThermal.restoreCachedPrinter();
+        QmsThermal.setPrinterMode('direct');
         preferBrowser = false;
+        await QmsThermal.restoreCachedPrinter();
         markUsbBlockedUi(false);
         const t = QmsThermal.getActiveTransport();
         markActive(t);
@@ -177,10 +176,19 @@
         return;
       }
 
-      if (preferBrowser || QmsThermal.isSystemPrinterMode()) {
+      if (QmsThermal.getLastErrorCode() === 'usb_blocked') {
+        markUsbBlockedUi(true);
+      }
+
+      if (preferBrowser) {
         markActive('system');
         setPrinterStatus(transportLabel('system'), true);
         return;
+      }
+
+      // Do not treat old session "system" mode as connected for silent print
+      if (QmsThermal.isSystemPrinterMode()) {
+        QmsThermal.setPrinterMode('direct');
       }
 
       setPrinterStatus(QmsThermal.getPrinterSupportMessage(), false);
@@ -197,9 +205,9 @@
     document.getElementById('btnConnectUsb').addEventListener('click', async () => {
       try {
         const result = await QmsThermal.connectUsbPrinter();
-        await onConnected(result, 'USB printer connected');
+        await onConnected(result, (result.productName || 'USB') + ' connected');
       } catch (err) {
-        preferBrowser = false; // do NOT switch to system print
+        preferBrowser = false;
         if (err.code === 'usb_blocked' || QmsThermal.getLastErrorCode() === 'usb_blocked') {
           markUsbBlockedUi(true);
         }
@@ -214,6 +222,8 @@
         await onConnected(result, 'Serial/COM printer connected');
       } catch (err) {
         preferBrowser = false;
+        // TM-T88V normally has no COM — steer user back to USB/Zadig
+        markUsbBlockedUi(true);
         setPrinterStatus(err.message, false);
         showAlert(document.getElementById('alert'), err.message);
       }
@@ -282,8 +292,11 @@
 
     async function printLastTicket() {
       if (!lastTicket) return;
+      // If USB already paired, never open Chrome dialog even if System Print was used earlier
+      const paired = await QmsThermal.hasDirectPrinterPaired();
+      if (paired) preferBrowser = false;
       const result = await QmsThermal.printQueueTicket(lastTicket, {
-        preferBrowser,
+        preferBrowser: preferBrowser && !paired,
         allowConnectPrompt: false,
       });
       if (result.success) {

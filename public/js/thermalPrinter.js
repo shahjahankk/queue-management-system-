@@ -210,28 +210,54 @@
 
     let device;
     try {
-      device = await navigator.usb.requestDevice({ filters: [] });
+      // Prefer Epson first (TM-T88V = 0x04b8), then show all USB devices
+      try {
+        device = await navigator.usb.requestDevice({
+          filters: [{ vendorId: 0x04b8 }, { vendorId: 0x0519 }, { vendorId: 0x1504 }],
+        });
+      } catch (e1) {
+        if (e1?.name === 'NotFoundError') {
+          device = await navigator.usb.requestDevice({ filters: [] });
+        } else {
+          throw e1;
+        }
+      }
     } catch (error) {
       if (error?.name === 'NotFoundError') {
         lastErrorCode = 'usb_not_found';
-        throw new Error('No USB device selected. Click Serial/COM if Epson is not listed under USB.');
+        throw new Error('No USB printer selected. Select TM-T88V in the list.');
       }
       throw error;
     }
     if (!device) throw new Error('No USB printer selected');
 
+    // MUST claim + write a real test — open-only can "succeed" while Windows still blocks printing
     try {
       const endpointInfo = await openUsbDevice(device);
+      await device.claimInterface(endpointInfo.interfaceNumber);
       try {
-        await device.releaseInterface(endpointInfo.interfaceNumber);
-        await device.close();
-      } catch (e) { /* ignore */ }
+        const test = new Uint8Array([0x1b, 0x40]); // ESC @ init
+        const result = await device.transferOut(endpointInfo.endpointNumber, test);
+        if (result.status !== 'ok') {
+          throw new Error('USB transfer failed: ' + result.status);
+        }
+      } finally {
+        try { await device.releaseInterface(endpointInfo.interfaceNumber); } catch (e) { /* ignore */ }
+        try { if (device.opened) await device.close(); } catch (e) { /* ignore */ }
+      }
     } catch (error) {
       try { if (device.opened) await device.close(); } catch (e) { /* ignore */ }
-      if (error?.name === 'SecurityError' || /access|denied|claim/i.test(error?.message || '')) {
+      if (
+        error?.name === 'SecurityError' ||
+        error?.name === 'NetworkError' ||
+        /access|denied|claim|transfer|protected/i.test(error?.message || '')
+      ) {
         lastErrorCode = 'usb_blocked';
         const blocked = new Error(
-          'USB blocked by Windows driver. Click Serial/COM next. If Epson is not there, install WinUSB with Zadig (zadig.akeo.ie) for silent print.'
+          'Windows is blocking Chrome from sending data to TM-T88V (USB Print driver). ' +
+          'Serial/COM will stay empty for this printer. ' +
+          'Fix for silent print: install WinUSB with Zadig (zadig.akeo.ie) on the Epson TM-T88V interface, unplug/replug USB, then click USB again and select TM-T88V. ' +
+          'Until then only System Print works (Chrome dialog).'
         );
         blocked.code = 'usb_blocked';
         throw blocked;
@@ -243,7 +269,7 @@
     cachedUsbDevice = device;
     persistUsb(device);
     lastErrorCode = null;
-    return { transport: 'usb', device };
+    return { transport: 'usb', device, productName: device.productName || 'TM-T88V' };
   }
 
   async function connectSerialPrinter() {
@@ -256,20 +282,13 @@
 
     let port;
     try {
-      // Unfiltered first so all COM / USB-serial adapters appear
       port = await navigator.serial.requestPort();
     } catch (error) {
       if (error?.name === 'NotFoundError') {
-        try {
-          port = await navigator.serial.requestPort({
-            filters: USB_FILTERS.map((f) => ({ usbVendorId: f.vendorId })),
-          });
-        } catch (e2) {
-          lastErrorCode = 'no_serial';
-          throw new Error(
-            'No Serial/COM port found. Epson often has no COM port when Windows USB Print owns it. Install WinUSB via Zadig, or use System Print (shows Chrome dialog).'
-          );
-        }
+        lastErrorCode = 'no_serial';
+        throw new Error(
+          'Serial/COM is empty — normal for Epson TM-T88V. This printer does not create a COM port. Use USB (with WinUSB/Zadig) for silent print, not Serial.'
+        );
       } else if (error?.name === 'NotAllowedError') {
         throw new Error('Serial permission denied. Click Serial/COM again and allow access.');
       } else {
@@ -468,8 +487,7 @@
   }
 
   /**
-   * Silent USB/Serial by default. Browser dialog ONLY when preferBrowser=true
-   * and no direct printer is paired.
+   * Silent USB ESC/POS only. Chrome print dialog ONLY if preferBrowser=true (System Print button).
    */
   async function printQueueTicket(ticket, { preferBrowser = false, allowConnectPrompt = false } = {}) {
     const payload = buildTokenEscPos({
@@ -478,68 +496,85 @@
       branchName: ticket.branch_name,
     });
 
-    // Always try silent direct first if a device is paired
-    if (isThermalPrintingSupported()) {
-      try {
-        let restored = await restoreCachedPrinter();
-        if (!restored && allowConnectPrompt) {
-          // Prefer Serial when USB was previously blocked
-          if (lastErrorCode === 'usb_blocked' && isWebSerialSupported()) {
-            await connectSerialPrinter();
-          } else {
-            await connectThermalPrinter();
-          }
-          restored = true;
-        }
-        if (restored || (await hasDirectPrinterPaired())) {
-          const transport = await writeToThermalPrinter(payload);
-          const via = transport === 'serial' ? 'serial/COM' : 'USB';
-          return {
-            success: true,
-            method: transport,
-            message: `Token printed via ${via} (no dialog)`,
-          };
-        }
-      } catch (err) {
-        resetCache();
-        console.warn('Silent thermal print failed:', err);
-        if (!preferBrowser) {
-          return {
-            success: false,
-            method: 'none',
-            code: lastErrorCode || err.code || 'print_failed',
-            message:
-              err.message ||
-              'Silent print failed. Click Serial/COM (USB is blocked on Windows), then try again.',
-          };
-        }
-      }
-    }
-
+    // Explicit System Print path only
     if (preferBrowser) {
       return printTokenBrowser();
     }
 
-    return {
-      success: false,
-      method: 'none',
-      code: lastErrorCode || 'not_connected',
-      message:
-        'Printer not connected for silent print. Click Serial/COM (recommended after USB block), or USB. System Print always shows a Chrome dialog.',
-    };
+    // Never use window.print() below this line
+    setPrinterMode('direct');
+
+    if (!isThermalPrintingSupported()) {
+      return {
+        success: false,
+        method: 'none',
+        message: 'Use Chrome/Edge on desktop. Connect USB and select TM-T88V for silent print.',
+      };
+    }
+
+    try {
+      let restored = await restoreCachedPrinter();
+      if (!restored && allowConnectPrompt) {
+        await connectUsbPrinter();
+        restored = true;
+      }
+      if (!restored) {
+        // Try previously paired USB devices without showing picker
+        if (isWebUsbSupported()) {
+          const devices = await navigator.usb.getDevices();
+          if (devices.length) {
+            cachedTransport = 'usb';
+            cachedUsbDevice = devices[0];
+            persistUsb(devices[0]);
+            restored = true;
+          }
+        }
+      }
+      if (!restored) {
+        return {
+          success: false,
+          method: 'none',
+          code: 'not_connected',
+          message:
+            'Printer not connected. Click USB once, select TM-T88V, then Get My Number. Do not use System Print if you want no dialog.',
+        };
+      }
+
+      const transport = await writeToThermalPrinter(payload);
+      const via = transport === 'serial' ? 'serial/COM' : 'USB';
+      return {
+        success: true,
+        method: transport,
+        message: `Token printed via ${via} (no dialog)`,
+      };
+    } catch (err) {
+      resetCache();
+      lastErrorCode = err.code || lastErrorCode || 'print_failed';
+      return {
+        success: false,
+        method: 'none',
+        code: lastErrorCode,
+        message:
+          err.message ||
+          'Silent USB print failed. Windows is blocking the printer — install WinUSB with Zadig for TM-T88V, then click USB again.',
+      };
+    }
   }
 
   function getPrinterSupportMessage() {
     if (lastErrorCode === 'usb_blocked') {
-      return 'USB blocked by Windows. Click Serial/COM now for silent print.';
+      return 'Windows blocks USB print. Install WinUSB (Zadig) for TM-T88V, then click USB and select TM-T88V. Serial stays empty for this printer.';
+    }
+    if (lastErrorCode === 'no_serial') {
+      return 'Serial/COM is empty for TM-T88V — use USB instead (with WinUSB if needed).';
     }
     if (isSystemPrinterMode()) {
-      return 'System Print = Chrome dialog (not silent). Prefer Serial/COM or USB.';
+      return 'System Print = Chrome dialog every time. Click USB + TM-T88V for silent print.';
     }
     if (!isThermalPrintingSupported()) {
       return 'Use Chrome or Edge on a laptop/desktop.';
     }
-    return 'Connect Serial/COM or USB for silent token print (no Chrome dialog).';
+    return 'Click USB → select TM-T88V once. After that, Get My Number prints silently (no Chrome dialog).';
   }
 
   global.QmsThermal = {
