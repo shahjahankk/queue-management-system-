@@ -4,6 +4,7 @@
  * - Web Serial (COM / USB-serial adapters)
  * - Browser/system print dialog ONLY when user explicitly chooses System Print
  * Chrome/Edge desktop only.
+ * Version: 20260805b — real PNG logo + safe cut margin
  */
 (function (global) {
   const USB_STORAGE_KEY = 'qmsThermalUsb';
@@ -452,12 +453,17 @@
     return esc(0x1b, 0x64, Math.max(0, Math.min(255, n)));
   }
 
-  /** Enough margin for cutter without a long blank strip */
+  function appendBytes(out, bytes) {
+    if (!bytes || !bytes.length) return;
+    for (let i = 0; i < bytes.length; i++) out.push(bytes[i]);
+  }
+
+  /** Blank paper below footer so cutter does not slice Tychora */
   function cutSafe() {
     return [
-      0x0a, 0x0a,
-      0x1b, 0x64, 0x06,
-      0x1d, 0x56, 0x41, 0x40,
+      0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, // 8 blank lines
+      0x1b, 0x64, 0x0a, // feed 10 lines more
+      0x1d, 0x56, 0x00, // full cut
     ];
   }
 
@@ -466,17 +472,19 @@
     const srcH = canvas.height;
     const w = Math.floor(srcW / 8) * 8;
     const h = srcH;
-    if (w < 8 || h < 1) return [];
+    if (w < 8 || h < 1) return null;
     const ctx = canvas.getContext('2d');
     const { data } = ctx.getImageData(0, 0, srcW, srcH);
 
-    const sample = (x, y) => {
+    // Sample center of logo (not corners — white letterbox can fool detection)
+    const mid = (x, y) => {
       const i = (Math.min(srcH - 1, Math.max(0, y)) * srcW + Math.min(srcW - 1, Math.max(0, x))) * 4;
       return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
     };
-    const cornerAvg =
-      (sample(2, 2) + sample(srcW - 3, 2) + sample(2, srcH - 3) + sample(srcW - 3, srcH - 3)) / 4;
-    const darkBackground = cornerAvg < 80;
+    const bgSample =
+      (mid(4, 4) + mid(srcW - 5, 4) + mid(4, srcH - 5) + mid(srcW - 5, srcH - 5) + mid((srcW / 2) | 0, 4)) / 5;
+    // petzonelogo.png has black background
+    const darkBackground = bgSample < 90;
 
     const bytesPerRow = w / 8;
     const raster = new Uint8Array(bytesPerRow * h);
@@ -492,11 +500,10 @@
         const lum = 0.299 * r + 0.587 * g + 0.114 * b;
         let ink = false;
         if (darkBackground) {
-          const nearBlack = r < 35 && g < 35 && b < 35;
-          ink = !nearBlack && lum > 25;
+          // Skip near-black background; print colored / light artwork
+          ink = !(r < 40 && g < 40 && b < 40) && lum > 20;
         } else {
-          const nearWhite = r > 245 && g > 245 && b > 245;
-          ink = !nearWhite && lum < 200;
+          ink = !(r > 245 && g > 245 && b > 245) && lum < 200;
         }
         if (ink) {
           raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
@@ -504,54 +511,76 @@
         }
       }
     }
-    if (blackCount < 20) return [];
-    return [
+    if (blackCount < 30) return null;
+
+    const header = new Uint8Array([
       0x1d, 0x76, 0x30, 0x00,
       bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff,
       h & 0xff, (h >> 8) & 0xff,
-      ...raster,
+    ]);
+    const out = new Uint8Array(header.length + raster.length);
+    out.set(header, 0);
+    out.set(raster, header.length);
+    return out;
+  }
+
+  async function loadLogoBitmap(path) {
+    const res = await fetch(path, { cache: 'no-cache' });
+    if (!res.ok) throw new Error('logo http ' + res.status);
+    const blob = await res.blob();
+    if (typeof createImageBitmap === 'function') {
+      return createImageBitmap(blob);
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = url;
+      });
+      return img;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  /**
+   * Real PetZone PNG only — never the pink-circle SVG placeholder.
+   * Fetches /assets/petzonelogo.png (same file the kiosk <img> shows).
+   */
+  async function logoToEscPosRaster(maxWidthDots = 320) {
+    if (typeof window === 'undefined') return null;
+    const candidates = [
+      '/assets/petzonelogo.png?v=20260805b',
+      '/assets/petzonelogo.png',
+      '/petzonelogo.png?v=20260805b',
     ];
-  }
 
-  async function loadLogoImage(absolute) {
-    const img = new Image();
-    const sameOrigin =
-      absolute.startsWith('data:') ||
-      (typeof window !== 'undefined' && absolute.startsWith(window.location.origin));
-    if (!sameOrigin) img.crossOrigin = 'anonymous';
-    await new Promise((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('logo load failed'));
-      img.src = absolute;
-    });
-    return img;
-  }
-
-  /** Prefer real PNG brand mark at /assets/petzonelogo.png */
-  async function logoToEscPosRaster(maxWidthDots = 448) {
-    if (typeof window === 'undefined') return [];
-    const candidates = ['/assets/petzonelogo.png', '/petzonelogo.png'];
-
-    for (const candidate of candidates) {
+    for (const path of candidates) {
       try {
-        const origin = window.location.origin;
-        const absolute = `${origin}${candidate}`;
-        const img = await loadLogoImage(absolute);
-        let w = img.naturalWidth || img.width;
-        let h = img.naturalHeight || img.height;
-        if (!w || !h) continue;
+        const img = await loadLogoBitmap(path);
+        let w = img.width || img.naturalWidth;
+        let h = img.height || img.naturalHeight;
+        if (!w || !h) {
+          if (img.close) img.close();
+          continue;
+        }
 
-        const targetW = Math.min(maxWidthDots, 320);
+        const targetW = Math.min(maxWidthDots, 360);
         if (w > targetW) {
           h = Math.round((h * targetW) / w);
           w = targetW;
         }
-        if (h > 96) {
-          w = Math.floor((w * 96) / h / 8) * 8;
-          h = 96;
+        if (h > 88) {
+          w = Math.floor((w * 88) / h / 8) * 8;
+          h = 88;
         }
         w = Math.floor(w / 8) * 8;
-        if (w < 8) continue;
+        if (w < 8) {
+          if (img.close) img.close();
+          continue;
+        }
 
         const canvas = document.createElement('canvas');
         canvas.width = w;
@@ -561,14 +590,16 @@
         ctx.fillRect(0, 0, w, h);
         ctx.imageSmoothingEnabled = true;
         ctx.drawImage(img, 0, 0, w, h);
+        if (img.close) img.close();
 
         const raster = canvasToEscPosRaster(canvas);
-        if (raster.length) return raster;
+        if (raster) return raster;
       } catch (e) {
-        /* try next */
+        console.warn('QMS logo load failed:', path, e);
       }
     }
-    return [];
+    console.warn('QMS: petzonelogo.png could not be rasterized for thermal print');
+    return null;
   }
 
   async function buildTokenEscPos({
@@ -585,29 +616,25 @@
 
     try {
       const logo = await logoToEscPosRaster(320);
-      if (logo.length) {
-        out.push(...logo);
-      }
+      if (logo) appendBytes(out, logo);
     } catch (e) {
-      /* optional */
+      console.warn('QMS logo print skipped:', e);
     }
 
-    out.push(...esc(0x1b, 0x4d, 0x01)); // Font B — compact
+    out.push(...esc(0x1b, 0x4d, 0x01)); // Font B
     out.push(...boldOn());
     out.push(...line('PetZone'));
     out.push(...boldOff());
 
-    if (serviceName) {
-      out.push(...line(String(serviceName).slice(0, 48)));
-    }
+    if (serviceName) out.push(...line(String(serviceName).slice(0, 48)));
 
-    out.push(...esc(0x1b, 0x4d, 0x00)); // Font A for ticket number
-    out.push(...esc(0x1b, 0x21, 0x30)); // double size number only
+    out.push(...esc(0x1b, 0x4d, 0x00));
+    out.push(...esc(0x1b, 0x21, 0x30));
     out.push(...boldOn());
     out.push(...line(String(ticketCode || '---')));
     out.push(...boldOff());
     out.push(...esc(0x1b, 0x21, 0x00));
-    out.push(...esc(0x1b, 0x4d, 0x01)); // back to Font B
+    out.push(...esc(0x1b, 0x4d, 0x01));
 
     if (branchName) out.push(...line(String(branchName).slice(0, 48)));
     if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 42)}`));
@@ -624,7 +651,7 @@
     out.push(...line('Please wait for your number to be called'));
     out.push(...line('Powered by Tychora'));
     out.push(...esc(0x1b, 0x4d, 0x00));
-    out.push(...cutSafe());
+    appendBytes(out, cutSafe());
     return new Uint8Array(out);
   }
 
