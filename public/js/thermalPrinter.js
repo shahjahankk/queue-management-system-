@@ -452,65 +452,53 @@
     return esc(0x1b, 0x64, Math.max(0, Math.min(255, n)));
   }
 
-  /** Feed past cutter then full cut — keeps footer fully on the slip */
+  /** Feed well past cutter then full cut */
   function cutSafe() {
-    return esc(0x1d, 0x56, 0x41, 0x68);
-  }
-
-  /**
-   * Draw PetZone mark for thermal (SVG text often does not rasterize).
-   */
-  function drawPetzoneLogoCanvas(maxWidthDots = 384) {
-    const w = Math.floor(maxWidthDots / 8) * 8;
-    const h = Math.max(64, Math.round(w * 0.28));
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w, h);
-
-    const cy = h / 2;
-    const r = Math.round(h * 0.38);
-    const cx = r + 4;
-
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(cx, cy - r * 0.12, r * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-
-    const textX = cx + r + Math.round(w * 0.04);
-    ctx.fillStyle = '#000000';
-    ctx.textBaseline = 'middle';
-    ctx.font = `bold ${Math.round(h * 0.42)}px Arial, Helvetica, sans-serif`;
-    ctx.fillText('Petzone', textX, cy - h * 0.12);
-    ctx.font = `${Math.round(h * 0.22)}px Arial, Helvetica, sans-serif`;
-    ctx.fillText('POS', textX, cy + h * 0.28);
-    return canvas;
+    return [
+      0x0a, 0x0a, 0x0a,
+      0x1b, 0x64, 0x0c,
+      0x1d, 0x56, 0x41, 0xff,
+    ];
   }
 
   function canvasToEscPosRaster(canvas) {
-    const w = Math.floor(canvas.width / 8) * 8;
-    const h = canvas.height;
+    const srcW = canvas.width;
+    const srcH = canvas.height;
+    const w = Math.floor(srcW / 8) * 8;
+    const h = srcH;
     if (w < 8 || h < 1) return [];
     const ctx = canvas.getContext('2d');
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const { data } = ctx.getImageData(0, 0, srcW, srcH);
+
+    const sample = (x, y) => {
+      const i = (Math.min(srcH - 1, Math.max(0, y)) * srcW + Math.min(srcW - 1, Math.max(0, x))) * 4;
+      return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    };
+    const cornerAvg =
+      (sample(2, 2) + sample(srcW - 3, 2) + sample(2, srcH - 3) + sample(srcW - 3, srcH - 3)) / 4;
+    const darkBackground = cornerAvg < 80;
+
     const bytesPerRow = w / 8;
     const raster = new Uint8Array(bytesPerRow * h);
     let blackCount = 0;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const i = (y * canvas.width + x) * 4;
+        const i = (y * srcW + x) * 4;
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
         const a = data[i + 3];
-        if (a > 40 && !(r > 245 && g > 245 && b > 245)) {
+        if (a < 40) continue;
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        let ink = false;
+        if (darkBackground) {
+          const nearBlack = r < 35 && g < 35 && b < 35;
+          ink = !nearBlack && lum > 25;
+        } else {
+          const nearWhite = r > 245 && g > 245 && b > 245;
+          ink = !nearWhite && lum < 200;
+        }
+        if (ink) {
           raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
           blackCount += 1;
         }
@@ -525,13 +513,65 @@
     ];
   }
 
-  async function logoToEscPosRaster(maxWidthDots = 384) {
+  async function loadLogoImage(absolute) {
+    const img = new Image();
+    const sameOrigin =
+      absolute.startsWith('data:') ||
+      (typeof window !== 'undefined' && absolute.startsWith(window.location.origin));
+    if (!sameOrigin) img.crossOrigin = 'anonymous';
+    await new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('logo load failed'));
+      img.src = absolute;
+    });
+    return img;
+  }
+
+  /** Prefer real PNG brand mark at /assets/petzonelogo.png */
+  async function logoToEscPosRaster(maxWidthDots = 448) {
     if (typeof window === 'undefined') return [];
-    try {
-      const drawn = canvasToEscPosRaster(drawPetzoneLogoCanvas(maxWidthDots));
-      if (drawn.length) return drawn;
-    } catch (e) {
-      /* fall through */
+    const candidates = ['/assets/petzonelogo.png', '/petzonelogo.png'];
+
+    for (const candidate of candidates) {
+      try {
+        const origin = window.location.origin;
+        const absolute = `${origin}${candidate}`;
+        const img = await loadLogoImage(absolute);
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        if (!w || !h) continue;
+
+        const targetW = Math.min(maxWidthDots, 512);
+        if (w > targetW) {
+          h = Math.round((h * targetW) / w);
+          w = targetW;
+        }
+        if (h < 72) {
+          const scale = 72 / h;
+          h = 72;
+          w = Math.floor((w * scale) / 8) * 8;
+          if (w > 512) {
+            h = Math.round((h * 512) / w);
+            w = 512;
+          }
+        }
+        w = Math.floor(w / 8) * 8;
+        if (w < 8) continue;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const raster = canvasToEscPosRaster(canvas);
+        if (raster.length) return raster;
+      } catch (e) {
+        /* try next */
+      }
     }
     return [];
   }
@@ -549,7 +589,7 @@
     out.push(...esc(0x1b, 0x61, 0x01));
 
     try {
-      const logo = await logoToEscPosRaster(384);
+      const logo = await logoToEscPosRaster(448);
       if (logo.length) {
         out.push(...logo);
         out.push(...feed(1));
@@ -558,23 +598,21 @@
       /* optional */
     }
 
-    // Match kiosk slip: PetZone → service → big number → meta → wait message
-    out.push(...charSize(0x11));
-    out.push(...boldOn());
+    // Bold double-height title (avoid GS ! outline look)
+    out.push(...esc(0x1b, 0x21, 0x18));
     out.push(...line('PetZone'));
-    out.push(...boldOff());
-    out.push(...charSize(0x00));
+    out.push(...esc(0x1b, 0x21, 0x00));
 
     if (serviceName) {
       out.push(...line(String(serviceName).slice(0, 42)));
     }
 
     out.push(...feed(1));
-    out.push(...charSize(0x22));
+    out.push(...esc(0x1b, 0x21, 0x30)); // double W+H for ticket code
     out.push(...boldOn());
     out.push(...line(String(ticketCode || '---')));
     out.push(...boldOff());
-    out.push(...charSize(0x00));
+    out.push(...esc(0x1b, 0x21, 0x00));
     out.push(...feed(1));
 
     if (branchName) out.push(...line(String(branchName).slice(0, 42)));
@@ -593,9 +631,6 @@
     out.push(...line('Please wait for your number to be called'));
     out.push(...feed(1));
     out.push(...line('Powered by Tychora'));
-    out.push(...line(''));
-    out.push(...line(''));
-    out.push(...feed(4));
     out.push(...cutSafe());
     return new Uint8Array(out);
   }
