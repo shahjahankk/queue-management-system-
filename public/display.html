@@ -37,13 +37,40 @@
         radial-gradient(ellipse at 80% 70%, rgba(14, 116, 144, 0.3), transparent 50%),
         linear-gradient(145deg, #0c4a6e, #134e4a 50%, #0f172a);
     }
-    .video-layer video {
+    .video-layer video,
+    .video-layer .yt-frame {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      border: 0;
       display: block;
+      pointer-events: none;
     }
-    .video-layer.fallback video { display: none; }
+    .video-layer video {
+      object-fit: cover;
+    }
+    .video-layer .yt-wrap {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+    .video-layer .yt-wrap iframe {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 100vw;
+      height: 56.25vw; /* 16:9 */
+      min-height: 100vh;
+      min-width: 177.78vh;
+      transform: translate(-50%, -50%);
+      border: 0;
+      pointer-events: none;
+    }
+    .video-layer.fallback video,
+    .video-layer.fallback .yt-wrap { display: none; }
+    .video-layer.yt-mode video { display: none; }
+    .video-layer.mp4-mode .yt-wrap { display: none; }
     .video-layer::after {
       content: '';
       position: absolute;
@@ -311,8 +338,9 @@
 </head>
 <body>
   <div class="stage">
-    <div class="video-layer" id="videoPane">
-      <video id="displayVideo" autoplay muted loop playsinline preload="auto"></video>
+    <div class="video-layer yt-mode" id="videoPane">
+      <div class="yt-wrap" id="ytWrap" aria-hidden="true"></div>
+      <video id="displayVideo" muted loop playsinline preload="auto"></video>
       <div class="ambient" aria-hidden="true">
         <span class="paw">🐾</span>
         <span class="paw">🐕</span>
@@ -370,19 +398,52 @@
     const announcementFifo = [];
     let fifoRunning = false;
 
-    // Video: ?video=URL  OR  localStorage qms_display_video  OR  /assets/display-video.mp4
-    // Drop your clinic video at public/assets/display-video.mp4 for offline TV use.
-    const FALLBACK_VIDEOS = [
-      'https://videos.pexels.com/video-files/3196257/3196257-uhd_2560_1440_25fps.mp4',
-      'https://videos.pexels.com/video-files/855029/855029-hd_1920_1080_30fps.mp4',
-      'https://videos.pexels.com/video-files/3045163/3045163-uhd_2560_1440_25fps.mp4',
-      'https://videos.pexels.com/video-files/7989669/7989669-uhd_2560_1440_25fps.mp4',
+    // YouTube animal/4K background (muted). Override with ?youtube=VIDEO_ID or ?video=mp4/url
+    // Sound stays off on video — only token call/recall uses audio.
+    const DEFAULT_YOUTUBE_IDS = [
+      'K1REumSu-Fk', // 12h nature fun for cats & dogs (4K HDR)
+      'WDyzAi_oetU', // spring deer, squirrels & birds (4K Cat/Dog TV)
+      'odF2ec97dPI', // deer & birds calm nature
     ];
-    const videoCandidates = [
-      query.get('video'),
-      localStorage.getItem('qms_display_video'),
+    const FALLBACK_MP4 = [
+      'https://videos.pexels.com/video-files/3196257/3196257-uhd_2560_1440_25fps.mp4',
       '/assets/display-video.mp4',
-    ].concat(FALLBACK_VIDEOS).filter(Boolean);
+    ];
+
+    function extractYouTubeId(value) {
+      if (!value) return null;
+      const raw = String(value).trim();
+      if (/^[\w-]{11}$/.test(raw)) return raw;
+      try {
+        const u = new URL(raw);
+        if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('/')[0] || null;
+        if (u.searchParams.get('v')) return u.searchParams.get('v');
+        const parts = u.pathname.split('/').filter(Boolean);
+        const embedIdx = parts.indexOf('embed');
+        if (embedIdx >= 0 && parts[embedIdx + 1]) return parts[embedIdx + 1];
+        const shortsIdx = parts.indexOf('shorts');
+        if (shortsIdx >= 0 && parts[shortsIdx + 1]) return parts[shortsIdx + 1];
+      } catch (_) { /* not a URL */ }
+      return null;
+    }
+
+    function youtubeEmbedUrl(id) {
+      const params = new URLSearchParams({
+        autoplay: '1',
+        mute: '1',
+        controls: '0',
+        loop: '1',
+        playlist: id,
+        modestbranding: '1',
+        rel: '0',
+        playsinline: '1',
+        iv_load_policy: '3',
+        disablekb: '1',
+        fs: '0',
+        enablejsapi: '0',
+      });
+      return 'https://www.youtube.com/embed/' + id + '?' + params.toString();
+    }
 
     function displayNum(code) {
       if (!code) return null;
@@ -405,39 +466,62 @@
     }
 
     function showVideoFallback() {
-      document.getElementById('videoPane').classList.add('fallback');
+      const pane = document.getElementById('videoPane');
+      pane.classList.add('fallback');
+      pane.classList.remove('yt-mode', 'mp4-mode');
     }
 
     function setupVideo() {
+      const pane = document.getElementById('videoPane');
+      const ytWrap = document.getElementById('ytWrap');
       const video = document.getElementById('displayVideo');
-      let index = 0;
+      const custom = query.get('youtube') || query.get('video') || localStorage.getItem('qms_display_video');
+      const ytFromCustom = extractYouTubeId(custom);
+      const ytIds = ytFromCustom
+        ? [ytFromCustom]
+        : (custom ? [] : DEFAULT_YOUTUBE_IDS.slice());
+      const mp4Candidates = [];
+      if (custom && !ytFromCustom) mp4Candidates.push(custom);
+      FALLBACK_MP4.forEach((src) => mp4Candidates.push(src));
 
+      // Prefer muted YouTube animal/4K embed
+      if (ytIds.length) {
+        const id = ytIds[0];
+        ytWrap.innerHTML =
+          '<iframe title="PetZone ambient video" src="' + youtubeEmbedUrl(id) + '" ' +
+          'allow="autoplay; encrypted-media; picture-in-picture" ' +
+          'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+        pane.classList.add('yt-mode');
+        pane.classList.remove('mp4-mode', 'fallback');
+        video.removeAttribute('src');
+        video.load();
+        return;
+      }
+
+      // MP4 fallback (also always muted)
+      pane.classList.add('mp4-mode');
+      pane.classList.remove('yt-mode');
+      let index = 0;
       const tryNext = () => {
-        if (index >= videoCandidates.length) {
+        if (index >= mp4Candidates.length) {
           showVideoFallback();
           return;
         }
-        const src = videoCandidates[index++];
+        const src = mp4Candidates[index++];
         video.src = src;
+        video.muted = true;
+        video.volume = 0;
         video.load();
         const playPromise = video.play();
         if (playPromise && playPromise.catch) {
-          playPromise.catch(() => {
-            // Autoplay blocked or bad source — try next / fallback
-            tryNext();
-          });
+          playPromise.catch(() => tryNext());
         }
       };
-
       video.addEventListener('error', () => tryNext());
       video.addEventListener('loadeddata', () => {
-        document.getElementById('videoPane').classList.remove('fallback');
+        pane.classList.remove('fallback');
       });
       tryNext();
-
-      // Keep muted so token voice announcements stay clear
-      video.muted = true;
-      video.volume = 0;
     }
 
     function getAudioContext() {
@@ -617,8 +701,11 @@
       if (soundEnabled) {
         await unlockAudio();
         const video = document.getElementById('displayVideo');
-        video.muted = true;
-        video.play().catch(() => {});
+        if (video) {
+          video.muted = true;
+          video.volume = 0;
+          video.play().catch(() => {});
+        }
         const ok = await speakText('Queue announcements enabled. Token number 10, please proceed to Grooming.');
         if (!ok) {
           alert('Voice failed on this TV browser. Keep internet enabled and try Enable Sound again.');
