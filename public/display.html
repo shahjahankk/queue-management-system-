@@ -76,7 +76,7 @@
       flex: 1;
       min-height: 0;
       display: grid;
-      grid-template-columns: 1fr 30%;
+      grid-template-columns: 1fr 15%;
       gap: 0;
     }
 
@@ -153,25 +153,26 @@
       min-height: 0;
       background: linear-gradient(180deg, #0d1b2e 0%, #102445 55%, #0c274f 100%);
       border-left: 1px solid rgba(255,255,255,0.1);
-      padding: 18px 16px 16px;
+      padding: 10px 8px 10px;
     }
 
     .queue-pane-title {
       font-family: 'Sora', sans-serif;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       opacity: 0.5;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       flex-shrink: 0;
+      text-align: center;
     }
 
     #nowServing {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
       min-height: 0;
       overflow: hidden;
     }
@@ -181,12 +182,12 @@
       min-height: 0;
       background: rgba(255,255,255,0.06);
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 18px;
+      border-radius: 12px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 10px 8px;
+      padding: 6px 4px;
       position: relative;
       overflow: hidden;
       transition: border-color 0.3s, box-shadow 0.3s, background 0.3s, transform 0.3s;
@@ -219,38 +220,41 @@
     }
 
     .opd-room {
-      font-size: clamp(13px, 1.1vw, 18px);
+      font-size: clamp(10px, 0.85vw, 13px);
       font-weight: 800;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       opacity: 0.7;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
+      text-align: center;
+      line-height: 1.15;
     }
 
     .opd-card.active .opd-room { opacity: 1; color: #ffb6c1; }
 
     .opd-number {
       font-family: 'Sora', sans-serif;
-      font-size: clamp(42px, 5.5vw, 78px);
+      font-size: clamp(28px, 3.2vw, 48px);
       font-weight: 800;
       line-height: 1;
       color: #ffb6c1;
-      text-shadow: 0 4px 28px rgba(255,182,193,0.4);
+      text-shadow: 0 4px 20px rgba(255,182,193,0.4);
     }
 
     .opd-card.idle .opd-number {
       color: rgba(255,255,255,0.18);
       text-shadow: none;
-      font-size: clamp(34px, 4.4vw, 58px);
+      font-size: clamp(24px, 2.6vw, 36px);
     }
 
     .opd-hint {
-      margin-top: 6px;
-      font-size: clamp(11px, 0.95vw, 14px);
+      margin-top: 4px;
+      font-size: clamp(9px, 0.75vw, 11px);
       font-weight: 600;
       opacity: 0.5;
       text-align: center;
-      padding: 0 8px;
+      padding: 0 4px;
+      line-height: 1.2;
     }
 
     .opd-card.active .opd-hint { opacity: 0.9; }
@@ -258,33 +262,33 @@
 
     .tv-footer {
       flex-shrink: 0;
-      margin-top: 12px;
+      margin-top: 8px;
       background: rgba(0,0,0,0.28);
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 14px;
-      padding: 12px 14px;
+      border-radius: 10px;
+      padding: 8px 8px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
     }
 
     .tv-footer-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 6px;
     }
 
     .tv-footer-label {
-      font-size: 11px;
+      font-size: 9px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.1em;
       opacity: 0.45;
     }
 
     .tv-footer-waiting {
-      font-size: clamp(13px, 1.15vw, 16px);
+      font-size: clamp(11px, 0.9vw, 13px);
       font-weight: 600;
       text-align: right;
     }
@@ -293,14 +297,14 @@
 
     .tv-footer-next-num {
       font-family: 'Sora', sans-serif;
-      font-size: clamp(28px, 3.4vw, 42px);
+      font-size: clamp(18px, 2vw, 28px);
       font-weight: 800;
       color: #ffb6c1;
       line-height: 1;
     }
 
     .tv-footer-clear {
-      font-size: 14px;
+      font-size: 11px;
       opacity: 0.42;
       font-style: italic;
     }
@@ -308,7 +312,7 @@
     @media (max-width: 900px), (orientation: portrait) {
       .tv-stage {
         grid-template-columns: 1fr;
-        grid-template-rows: 55% 45%;
+        grid-template-rows: 70% 30%;
       }
       .queue-pane { border-left: 0; border-top: 1px solid rgba(255,255,255,0.1); }
       #nowServing { flex-direction: row; }
@@ -652,9 +656,9 @@
         const isGrooming = /groom/i.test(String(row.counter_label || row.counter_name || row.service_name || ''));
         const hint = isActive
           ? (serving
-              ? (isGrooming ? 'In grooming' : 'In consultation')
-              : (isGrooming ? 'Please proceed to grooming' : 'Please proceed to room'))
-          : 'Waiting for patient';
+              ? (isGrooming ? 'Grooming' : 'Consult')
+              : (isGrooming ? 'To grooming' : 'To room'))
+          : 'Waiting';
 
         return `
           <div class="opd-card ${isActive ? 'active' : 'idle'}${flash}" data-counter="${key}">
