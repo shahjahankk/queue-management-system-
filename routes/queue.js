@@ -522,6 +522,18 @@ router.post('/public/:orgSlug/:branchSlug/call-next', async (req, res) => {
 
     await conn.beginTransaction();
 
+    // Call Next can replace the current OPD ticket without clicking Complete first.
+    // Auto-complete any active ticket already on this station.
+    if (counter_id) {
+      await conn.execute(
+        `UPDATE qms_tickets
+         SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+         WHERE branch_id = ? AND date_key = ? AND counter_id = ?
+           AND status IN ('called', 'serving')`,
+        [branch.id, dateKey, counter_id]
+      );
+    }
+
     let query = `
       SELECT t.id FROM qms_tickets t
       WHERE t.branch_id = ? AND t.date_key = ? AND t.status = 'waiting'
@@ -532,7 +544,7 @@ router.post('/public/:orgSlug/:branchSlug/call-next', async (req, res) => {
 
     const [waiting] = await conn.execute(query, params);
     if (!waiting.length) {
-      await conn.rollback();
+      await conn.commit();
       return res.json({ success: true, data: null, message: 'No waiting tickets' });
     }
 
@@ -669,6 +681,17 @@ router.post('/staff/:branchId/call-next', authMiddleware, async (req, res) => {
 
     await conn.beginTransaction();
 
+    // Auto-complete active ticket on this counter so Call Next can advance immediately
+    if (counter_id) {
+      await conn.execute(
+        `UPDATE qms_tickets
+         SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+         WHERE branch_id = ? AND date_key = ? AND counter_id = ?
+           AND status IN ('called', 'serving')`,
+        [req.params.branchId, dateKey, counter_id]
+      );
+    }
+
     let query = `
       SELECT t.id FROM qms_tickets t
       WHERE t.branch_id = ? AND t.date_key = ? AND t.status = 'waiting'
@@ -683,7 +706,7 @@ router.post('/staff/:branchId/call-next', authMiddleware, async (req, res) => {
 
     const [waiting] = await conn.execute(query, params);
     if (!waiting.length) {
-      await conn.rollback();
+      await conn.commit();
       return res.json({ success: true, data: null, message: 'No waiting tickets' });
     }
 
@@ -704,7 +727,7 @@ router.post('/staff/:branchId/call-next', authMiddleware, async (req, res) => {
       [ticketId]
     );
 
-    res.json({ success: true, data: ticket[0] });
+    res.json({ success: true, data: attachCounterLabel(ticket[0]) });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ success: false, message: err.message });

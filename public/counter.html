@@ -163,9 +163,11 @@
         if (!json.success) throw new Error(json.message);
         const waiting = json.data.filter(t => t.status === 'waiting');
         const called = json.data.filter((t) => ['called', 'serving'].includes(t.status));
-        const myTicket = counterId
-          ? called.find((t) => String(t.counter_id) === String(counterId))
-          : called[0];
+        const forStation = counterId
+          ? called.filter((t) => String(t.counter_id) === String(counterId))
+          : called.slice();
+        forStation.sort((a, b) => new Date(b.called_at || 0) - new Date(a.called_at || 0));
+        const myTicket = forStation[0] || null;
 
         document.getElementById('queueList').innerHTML = waiting.length
           ? waiting.map(t => `
