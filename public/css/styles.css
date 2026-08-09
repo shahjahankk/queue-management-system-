@@ -184,7 +184,7 @@ th { font-size: 13px; color: var(--gray-500); text-transform: uppercase; letter-
     border: 2px solid #000;
     width: 72mm;
     max-width: 72mm;
-    padding: 8px 8px 28px;
+    padding: 8px 8px 10px;
     display: block !important;
   }
   .no-print,

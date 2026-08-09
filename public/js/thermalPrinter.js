@@ -4,7 +4,7 @@
  * - Web Serial (COM / USB-serial adapters)
  * - Browser/system print dialog ONLY when user explicitly chooses System Print
  * Chrome/Edge desktop only.
- * Version: 20260809c — large token number + real PNG logo + safe cut
+ * Version: 20260809d — unified POS/QMS token layout + compact cut
  */
 (function (global) {
   const USB_STORAGE_KEY = 'qmsThermalUsb';
@@ -458,11 +458,10 @@
     for (let i = 0; i < bytes.length; i++) out.push(bytes[i]);
   }
 
-  /** Blank paper below footer so cutter does not slice Tychora */
+  /** Five lines clear the cutter without leaving a long blank tail */
   function cutSafe() {
     return [
-      0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, // 8 blank lines
-      0x1b, 0x64, 0x0a, // feed 10 lines more
+      0x0a, 0x0a, 0x0a, 0x0a, 0x0a,
       0x1d, 0x56, 0x00, // full cut
     ];
   }
