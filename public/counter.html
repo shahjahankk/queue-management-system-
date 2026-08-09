@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PetZone Attendant Panel</title>
+  <title>PetZone Hospital - Attendant</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
   <header class="header">
     <img src="/assets/petzonelogo.png" alt="PetZone" class="logo" onerror="this.src='/assets/petzonelogo.svg'">
     <div>
-      <h2 id="branchTitle" style="color: var(--blue);">Attendant Panel</h2>
+      <h2 id="brandTitle" style="color: var(--blue);">PetZone Hospital</h2>
+      <p id="branchTitle" style="font-size: 15px; color: var(--gray-500); margin-top: 2px;">Attendant Panel</p>
       <p id="stationLabel" style="font-size: 14px; color: var(--gray-500); margin-top: 4px;"></p>
     </div>
     <nav>
@@ -133,7 +134,8 @@
       if (!json.success) throw new Error(json.message);
       branchId = json.data.branch.id;
       services = json.data.services;
-      document.getElementById('branchTitle').textContent = json.data.branch.name + ' — Attendant';
+      document.getElementById('brandTitle').textContent = 'PetZone Hospital';
+      document.getElementById('branchTitle').textContent = (json.data.branch.name || '') + ' — Attendant';
 
       const cRes = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/counters`);
       const cJson = await cRes.json();

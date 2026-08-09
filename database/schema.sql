@@ -118,7 +118,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- ============================================================
 
 INSERT INTO qms_organizations (name, slug) VALUES
-  ('PetZone Clinic', 'petzone');
+  ('PetZone Hospital', 'petzone');
 
 SET @org_id = LAST_INSERT_ID();
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PetZone - Queue Display</title>
+  <title>PetZone Hospital - Queue Display</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
@@ -252,8 +252,8 @@
       <button type="button" id="soundToggle" class="sound-toggle">🔇 Enable Sound</button>
     </div>
     <div class="tv-header-center">
-      <h1 id="branchName">PetZone Clinic</h1>
-      <p id="orgName"></p>
+      <h1 id="brandName">PetZone Hospital</h1>
+      <p id="branchName"></p>
     </div>
     <div class="tv-clock" id="clock">--:--:--</div>
   </header>
@@ -536,8 +536,8 @@
         if (!json.success) return;
 
         const d = json.data;
-        document.getElementById('branchName').textContent = d.branch.name;
-        document.getElementById('orgName').textContent = d.branch.org_name || '';
+        document.getElementById('brandName').textContent = 'PetZone Hospital';
+        document.getElementById('branchName').textContent = d.branch.name || '';
 
         announceChanges(d.by_counter || []);
         renderOpdCards(d.by_counter || []);

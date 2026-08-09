@@ -622,8 +622,14 @@
 
     out.push(...esc(0x1b, 0x4d, 0x00)); // Font A
 
+    out.push(...boldOn());
+    out.push(...esc(0x1b, 0x21, 0x18)); // bold + double height
+    out.push(...line('PetZone Hospital'));
+    out.push(...esc(0x1b, 0x21, 0x00));
+    out.push(...boldOff());
+
     if (serviceName) {
-      out.push(...esc(0x1b, 0x21, 0x18)); // bold + double height
+      out.push(...esc(0x1b, 0x21, 0x08)); // bold
       out.push(...line(String(serviceName).slice(0, 42)));
       out.push(...esc(0x1b, 0x21, 0x00));
     }
@@ -638,7 +644,10 @@
     out.push(...esc(0x1b, 0x4d, 0x00)); // larger Font A details
 
     out.push(...boldOn());
-    if (branchName) out.push(...line(String(branchName).slice(0, 42)));
+    // Keep branch as secondary line under the hospital brand
+    if (branchName && !/petzone hospital/i.test(String(branchName))) {
+      out.push(...line(String(branchName).slice(0, 42)));
+    }
     if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 36)}`));
 
     const ahead = Number(waitingAhead);
