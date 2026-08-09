@@ -817,4 +817,100 @@ router.get('/stats/:branchId', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Clinic group chat (polling — cPanel safe, no websockets) ─
+let chatTableReady = false;
+
+async function ensureChatTable() {
+  if (chatTableReady) return;
+  await executeQuery(`
+    CREATE TABLE IF NOT EXISTS qms_chat_messages (
+      id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      branch_id    INT UNSIGNED NOT NULL,
+      sender_name  VARCHAR(80)  NOT NULL,
+      sender_role  VARCHAR(40)  DEFAULT NULL,
+      body         VARCHAR(500) NOT NULL,
+      created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_chat_branch FOREIGN KEY (branch_id) REFERENCES qms_branches(id) ON DELETE CASCADE,
+      KEY idx_chat_branch_id (branch_id, id),
+      KEY idx_chat_branch_created (branch_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  chatTableReady = true;
+}
+
+router.get('/public/:orgSlug/:branchSlug/chat', async (req, res) => {
+  try {
+    const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
+    if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
+
+    await ensureChatTable();
+
+    const sinceId = parseInt(req.query.since_id, 10) || 0;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+
+    let rows;
+    if (sinceId > 0) {
+      rows = await executeQuery(
+        `SELECT id, sender_name, sender_role, body, created_at
+         FROM qms_chat_messages
+         WHERE branch_id = ? AND id > ?
+         ORDER BY id ASC
+         LIMIT ${limit}`,
+        [branch.id, sinceId]
+      );
+    } else {
+      // Latest N, then reverse so UI gets oldest→newest
+      const latest = await executeQuery(
+        `SELECT id, sender_name, sender_role, body, created_at
+         FROM qms_chat_messages
+         WHERE branch_id = ?
+         ORDER BY id DESC
+         LIMIT ${limit}`,
+        [branch.id]
+      );
+      rows = latest.reverse();
+    }
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/public/:orgSlug/:branchSlug/chat', async (req, res) => {
+  try {
+    const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
+    if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
+
+    await ensureChatTable();
+
+    const senderName = String(req.body?.sender_name || '').trim().slice(0, 80);
+    const senderRole = String(req.body?.sender_role || '').trim().slice(0, 40) || null;
+    const body = String(req.body?.body || '').trim().slice(0, 500);
+
+    if (!senderName) {
+      return res.status(400).json({ success: false, message: 'Your name / station is required' });
+    }
+    if (!body) {
+      return res.status(400).json({ success: false, message: 'Message cannot be empty' });
+    }
+
+    const result = await executeQuery(
+      `INSERT INTO qms_chat_messages (branch_id, sender_name, sender_role, body)
+       VALUES (?, ?, ?, ?)`,
+      [branch.id, senderName, senderRole, body]
+    );
+
+    const rows = await executeQuery(
+      `SELECT id, sender_name, sender_role, body, created_at
+       FROM qms_chat_messages WHERE id = ? LIMIT 1`,
+      [result.insertId]
+    );
+
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

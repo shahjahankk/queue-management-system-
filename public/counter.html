@@ -61,6 +61,40 @@
         </div>
       </div>
     </div>
+
+    <div class="card" style="margin-top: 24px;" id="clinicChatCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <div>
+          <h3 style="color: var(--blue); margin: 0;">Clinic Chat</h3>
+          <p style="margin: 4px 0 0; font-size: 13px; color: var(--gray-500);">
+            Shared notes for OPD, Grooming, Reception &amp; Cashier (e.g. add vaccination charge)
+          </p>
+        </div>
+        <span id="chatStatus" style="font-size:12px;color:var(--gray-500);">Connecting…</span>
+      </div>
+      <div style="display:grid;grid-template-columns:180px 1fr;gap:10px;margin-bottom:10px;">
+        <div class="form-group" style="margin:0;">
+          <label>You are</label>
+          <select id="chatSender">
+            <option value="Reception">Reception</option>
+            <option value="Cashier">Cashier</option>
+            <option value="OPD 1">OPD 1</option>
+            <option value="OPD 2">OPD 2</option>
+            <option value="Grooming">Grooming</option>
+            <option value="custom">Custom name…</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label>Custom name (optional)</label>
+          <input id="chatCustomName" type="text" maxlength="80" placeholder="e.g. Dr. Ahmed / Front Desk" disabled>
+        </div>
+      </div>
+      <div id="chatMessages" style="height:260px;overflow-y:auto;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:12px;margin-bottom:10px;"></div>
+      <div style="display:flex;gap:8px;">
+        <input id="chatInput" type="text" maxlength="500" placeholder="Type a remark for the team…" style="flex:1;">
+        <button class="btn btn-primary" id="chatSendBtn" type="button">Send</button>
+      </div>
+    </div>
   </div>
 
   <script src="/js/app.js"></script>
@@ -283,10 +317,141 @@
       });
     });
 
+    // ── Clinic group chat (poll — does not touch Call Next) ──
+    const chatKey = `qms-chat-sender-${orgSlug}-${branchSlug}`;
+    let chatLastId = 0;
+    let chatBusy = false;
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function getChatSenderName() {
+      const select = document.getElementById('chatSender');
+      if (select.value === 'custom') {
+        return (document.getElementById('chatCustomName').value || '').trim() || 'Staff';
+      }
+      return select.value;
+    }
+
+    function syncChatSenderInputs() {
+      const select = document.getElementById('chatSender');
+      const custom = document.getElementById('chatCustomName');
+      custom.disabled = select.value !== 'custom';
+      try {
+        localStorage.setItem(chatKey, JSON.stringify({
+          mode: select.value,
+          custom: custom.value || '',
+        }));
+      } catch (_) { /* ignore */ }
+    }
+
+    function restoreChatSender() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(chatKey) || '{}');
+        const select = document.getElementById('chatSender');
+        const custom = document.getElementById('chatCustomName');
+        if (saved.mode && [...select.options].some((o) => o.value === saved.mode)) {
+          select.value = saved.mode;
+        }
+        if (saved.custom) custom.value = saved.custom;
+      } catch (_) { /* ignore */ }
+      syncChatSenderInputs();
+    }
+
+    function appendChatMessages(rows, { replace } = {}) {
+      const box = document.getElementById('chatMessages');
+      if (replace) box.innerHTML = '';
+      if (!rows.length && replace) {
+        box.innerHTML = '<p style="color:var(--gray-500);margin:0;">No messages yet. Say hello to Reception / OPD.</p>';
+        return;
+      }
+      if (replace && rows.length) box.innerHTML = '';
+      rows.forEach((m) => {
+        chatLastId = Math.max(chatLastId, Number(m.id) || 0);
+        const time = m.created_at
+          ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : '';
+        const el = document.createElement('div');
+        el.style.cssText = 'margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--gray-200);';
+        el.innerHTML =
+          '<div style="display:flex;justify-content:space-between;gap:8px;">' +
+            '<strong style="color:var(--blue);">' + escapeHtml(m.sender_name) + '</strong>' +
+            '<span style="font-size:11px;color:var(--gray-500);">' + escapeHtml(time) + '</span>' +
+          '</div>' +
+          '<div style="margin-top:2px;white-space:pre-wrap;">' + escapeHtml(m.body) + '</div>';
+        box.appendChild(el);
+      });
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function refreshChat({ initial } = {}) {
+      try {
+        const q = initial || !chatLastId
+          ? '?limit=50'
+          : `?since_id=${chatLastId}&limit=50`;
+        const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/chat${q}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message || 'Chat failed');
+        const rows = json.data || [];
+        if (initial || !chatLastId) appendChatMessages(rows, { replace: true });
+        else if (rows.length) appendChatMessages(rows);
+        document.getElementById('chatStatus').textContent = 'Live';
+        document.getElementById('chatStatus').style.color = '#15803d';
+      } catch (err) {
+        document.getElementById('chatStatus').textContent = 'Offline';
+        document.getElementById('chatStatus').style.color = '#b91c1c';
+      }
+    }
+
+    async function sendChat() {
+      if (chatBusy) return;
+      const body = (document.getElementById('chatInput').value || '').trim();
+      if (!body) return;
+      const sender_name = getChatSenderName();
+      chatBusy = true;
+      document.getElementById('chatSendBtn').disabled = true;
+      try {
+        const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sender_name, sender_role: sender_name, body }),
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.message || 'Send failed');
+        document.getElementById('chatInput').value = '';
+        if (json.data) appendChatMessages([json.data]);
+        else await refreshChat();
+      } catch (err) {
+        showAlert(document.getElementById('alert'), err.message);
+      } finally {
+        chatBusy = false;
+        document.getElementById('chatSendBtn').disabled = false;
+        document.getElementById('chatInput').focus();
+      }
+    }
+
+    document.getElementById('chatSender').addEventListener('change', syncChatSenderInputs);
+    document.getElementById('chatCustomName').addEventListener('input', syncChatSenderInputs);
+    document.getElementById('chatSendBtn').addEventListener('click', sendChat);
+    document.getElementById('chatInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+    restoreChatSender();
+
     loadBranch().then(() => {
       refreshQueue();
       refreshStatsPublic();
+      refreshChat({ initial: true });
       setInterval(() => { refreshQueue(); refreshStatsPublic(); }, 4000);
+      setInterval(() => { refreshChat(); }, 3500);
     }).catch(err => showAlert(document.getElementById('alert'), err.message));
   </script>
 </body>

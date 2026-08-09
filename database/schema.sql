@@ -97,6 +97,19 @@ CREATE TABLE IF NOT EXISTS qms_tickets (
   KEY idx_ticket_code   (ticket_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ── Clinic group chat (OPD ↔ Reception / Cashier) ───────────
+CREATE TABLE IF NOT EXISTS qms_chat_messages (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  branch_id    INT UNSIGNED NOT NULL,
+  sender_name  VARCHAR(80)  NOT NULL,
+  sender_role  VARCHAR(40)  DEFAULT NULL,
+  body         VARCHAR(500) NOT NULL,
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_chat_branch FOREIGN KEY (branch_id) REFERENCES qms_branches(id) ON DELETE CASCADE,
+  KEY idx_chat_branch_id (branch_id, id),
+  KEY idx_chat_branch_created (branch_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ── Daily sequence tracker (fast ticket numbering) ──────────
 CREATE TABLE IF NOT EXISTS qms_daily_sequences (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
