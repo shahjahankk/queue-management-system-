@@ -6,7 +6,7 @@
   <title>PetZone Hospital — Live Queue</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --teal: #0d9488;
@@ -112,51 +112,58 @@
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
-      padding: 0.85rem 1.25rem;
-      background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08));
-      backdrop-filter: blur(18px) saturate(1.35);
-      -webkit-backdrop-filter: blur(18px) saturate(1.35);
-      border-bottom: 1px solid rgba(255,255,255,0.28);
-      box-shadow: 0 10px 40px rgba(2, 6, 23, 0.25);
+      padding: 1rem 1.5rem 1.05rem;
+      background: linear-gradient(180deg, rgba(2, 6, 23, 0.55), rgba(2, 6, 23, 0.18));
+      backdrop-filter: blur(14px) saturate(1.15);
+      -webkit-backdrop-filter: blur(14px) saturate(1.15);
+      border-bottom: 1px solid rgba(255,255,255,0.12);
     }
     .brand-block {
       display: flex;
-      align-items: center;
-      gap: 0.85rem;
+      flex-direction: column;
+      align-items: flex-start;
       min-width: 0;
+      gap: 0.2rem;
     }
-    .logo-mark {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
-      object-fit: contain;
-      background: #fff;
-      padding: 6px;
-      box-shadow: 0 8px 24px rgba(2,6,23,0.28);
-      flex-shrink: 0;
-      border: 1px solid rgba(255,255,255,0.55);
-    }
-    .brand-copy { min-width: 0; }
-    .eyebrow {
-      font-family: 'Outfit', sans-serif;
-      font-size: 0.68rem;
-      font-weight: 700;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: #99f6e4;
-      text-shadow: 0 1px 8px rgba(2,6,23,0.45);
-    }
-    .brand-name {
-      font-family: 'Outfit', sans-serif;
-      font-size: clamp(1.75rem, 3.6vw, 3rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      line-height: 1.05;
+    .brand-wordmark {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: clamp(2.1rem, 4.2vw, 3.35rem);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      line-height: 1;
       color: #fff;
-      text-shadow: 0 2px 16px rgba(2,6,23,0.55);
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      text-shadow: 0 2px 24px rgba(2, 6, 23, 0.55);
+    }
+    .brand-wordmark em {
+      font-style: normal;
+      font-weight: 700;
+      background: linear-gradient(120deg, #f8fafc 0%, #99f6e4 55%, #5eead4 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .brand-sub {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      margin-top: 0.15rem;
+    }
+    .brand-sub::before,
+    .brand-sub::after {
+      content: '';
+      width: 22px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(153, 246, 228, 0.7), transparent);
+    }
+    .brand-sub span {
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(0.62rem, 1vw, 0.78rem);
+      font-weight: 700;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: rgba(226, 232, 240, 0.88);
+      white-space: nowrap;
     }
     .top-actions {
       display: flex;
@@ -205,7 +212,7 @@
 
     .glass-rail {
       position: absolute;
-      top: calc(92px + 0.75rem);
+      top: calc(78px + 0.75rem);
       right: 0.85rem;
       bottom: 0.85rem;
       width: var(--rail-w);
@@ -352,11 +359,8 @@
 
     <header class="topbar">
       <div class="brand-block">
-        <img class="logo-mark" src="/assets/petzonelogo.png" alt="PetZone Hospital" onerror="this.onerror=null;this.src='/assets/petzonelogo.svg'">
-        <div class="brand-copy">
-          <div class="eyebrow">Premier Pet Care</div>
-          <div class="brand-name" id="brandName">PetZone Hospital</div>
-        </div>
+        <div class="brand-wordmark" id="brandName"><em>PetZone</em> Animal Hospital</div>
+        <div class="brand-sub"><span>Compassion · Care · Excellence</span></div>
       </div>
       <div class="top-actions">
         <button class="sound-btn" id="soundToggle" type="button">🔇 Enable Sound</button>
@@ -826,7 +830,7 @@
         if (!json.success) return;
 
         const d = json.data;
-        document.getElementById('brandName').textContent = 'PetZone Hospital';
+        document.getElementById('brandName').innerHTML = '<em>PetZone</em> Animal Hospital';
 
         announceChanges(d.by_counter || []);
         renderOpdCards(d.by_counter || []);
