@@ -288,6 +288,8 @@
     let announcementsInitialized = false;
     let soundEnabled = localStorage.getItem('qms_display_sound') === 'on';
     let sharedContext = null;
+    const announcementFifo = [];
+    let fifoRunning = false;
 
     function displayNum(code) {
       if (!code) return null;
@@ -417,12 +419,30 @@
 
     async function speakAnnouncement(row, isRecall) {
       if (!soundEnabled || !row.ticket_code) return;
-      playChime();
-      await new Promise((r) => setTimeout(r, 550));
       const number = displayNum(row.ticket_code) || row.ticket_code;
       const counter = row.counter_label || row.counter_name || 'the counter';
       const prefix = isRecall ? 'Recall. ' : '';
-      await speakText(prefix + 'Token number ' + number + ', please proceed to ' + counter + '.');
+      const text = prefix + 'Token number ' + number + ', please proceed to ' + counter + '.';
+
+      const last = announcementFifo[announcementFifo.length - 1];
+      if (last && last.text === text) return;
+      announcementFifo.push({ text: text });
+      drainFifo();
+    }
+
+    async function drainFifo() {
+      if (fifoRunning) return;
+      fifoRunning = true;
+      while (announcementFifo.length > 0) {
+        const job = announcementFifo.shift();
+        try {
+          playChime();
+          await new Promise((r) => setTimeout(r, 550));
+          await speakText(job.text);
+          await new Promise((r) => setTimeout(r, 350));
+        } catch (_) { /* keep going */ }
+      }
+      fifoRunning = false;
     }
 
     function announceChanges(rows) {
@@ -436,15 +456,18 @@
         announcementsInitialized = true;
         return;
       }
+      // Collect first, then enqueue in stable counter order (FIFO across OPDs)
+      const pending = [];
       rows.forEach((row) => {
         const key = String(row.counter_id);
         const previous = announcementState.get(key);
         const signature = `${row.ticket_code || ''}|${row.called_at || ''}`;
         if (row.ticket_code && previous && previous.signature !== signature) {
-          speakAnnouncement(row, previous.code === row.ticket_code);
+          pending.push({ row, isRecall: previous.code === row.ticket_code });
         }
         announcementState.set(key, { code: row.ticket_code || null, signature });
       });
+      pending.forEach((item) => speakAnnouncement(item.row, item.isRecall));
     }
 
     function updateSoundButton() {
