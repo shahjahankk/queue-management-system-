@@ -400,15 +400,15 @@
     const announcementFifo = [];
     let fifoRunning = false;
 
-    // YouTube animal/4K background. Starts muted for autoplay; Enable Sound opens ambient audio.
-    // Token call/recall ducks ambient video so announcements stay loud and clear.
-    const DEFAULT_YOUTUBE_IDS = [
-      'GVUwV1ncgfs', // 12h Pet TV — dogs & cats (best for hospital lobby)
-      'wmwKLngD1o0', // 12h nature fun for cats & dogs
-      'K1REumSu-Fk', // 4K HDR cats & dogs nature
-    ];
-    const FALLBACK_MP4 = [
-      'https://videos.pexels.com/video-files/3196257/3196257-uhd_2560_1440_25fps.mp4',
+    // Cute family-safe cats/dogs stock video (MP4) — works in Pakistan (no YouTube geo-block).
+    // Optional override: ?youtube=VIDEO_ID or ?video=mp4Url
+    // Token call/recall ducks ambient audio so announcements stay clear.
+    const PET_MP4_VIDEOS = [
+      'https://videos.pexels.com/video-files/855029/855029-hd_1920_1080_30fps.mp4', // cute dog
+      'https://videos.pexels.com/video-files/2795407/2795407-uhd_2560_1440_25fps.mp4', // pets / dog
+      'https://videos.pexels.com/video-files/1409899/1409899-uhd_2560_1440_25fps.mp4', // dog outdoors
+      'https://videos.pexels.com/video-files/3195394/3195394-uhd_2560_1440_25fps.mp4', // animal pets
+      'https://videos.pexels.com/video-files/992623/992623-hd_1920_1080_25fps.mp4', // cute pet
       '/assets/display-video.mp4',
     ];
 
@@ -630,26 +630,30 @@
 
     function setupVideo() {
       const pane = document.getElementById('videoPane');
-      const ytWrap = document.getElementById('ytWrap');
       const video = document.getElementById('displayVideo');
-      const custom = query.get('youtube') || query.get('video') || localStorage.getItem('qms_display_video');
-      const ytFromCustom = extractYouTubeId(custom);
-      const ytIds = ytFromCustom
-        ? [ytFromCustom]
-        : (custom ? [] : DEFAULT_YOUTUBE_IDS.slice());
+      // Clear old geo-blocked YouTube IDs saved previously
+      try {
+        const storedYt = localStorage.getItem('qms_display_video');
+        if (storedYt && extractYouTubeId(storedYt)) localStorage.removeItem('qms_display_video');
+      } catch (_) { /* ignore */ }
+      // Prefer explicit URL params; ignore old geo-blocked YouTube saved in localStorage
+      const customParam = query.get('youtube') || query.get('video');
+      const stored = localStorage.getItem('qms_display_video');
+      const custom = customParam || (stored && !extractYouTubeId(stored) ? stored : null);
+      const ytFromCustom = extractYouTubeId(customParam); // only allow YouTube via ?youtube=
       const mp4Candidates = [];
-      if (custom && !ytFromCustom) mp4Candidates.push(custom);
-      FALLBACK_MP4.forEach((src) => mp4Candidates.push(src));
+      if (custom && !extractYouTubeId(custom)) mp4Candidates.push(custom);
+      PET_MP4_VIDEOS.forEach((src) => mp4Candidates.push(src));
 
-      // Prefer YouTube animal/4K embed (muted until Enable Sound)
-      if (ytIds.length) {
-        mountYouTube(ytIds[0], false);
+      // YouTube only when explicitly requested (many Pet TV videos are blocked in PK)
+      if (ytFromCustom) {
+        mountYouTube(ytFromCustom, false);
         video.removeAttribute('src');
         video.load();
         return;
       }
 
-      // MP4 fallback (starts muted for autoplay; Enable Sound opens audio)
+      // Default: cute cats/dogs MP4 loop (family-safe, works in Pakistan)
       pane.classList.add('mp4-mode');
       pane.classList.remove('yt-mode');
       let index = 0;
