@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PetZone OPD Attendant Panel</title>
+  <title>PetZone Attendant Panel</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
   <header class="header">
     <img src="/assets/petzonelogo.png" alt="PetZone" class="logo" onerror="this.src='/assets/petzonelogo.svg'">
     <div>
-      <h2 id="branchTitle" style="color: var(--blue);">OPD Attendant Panel</h2>
+      <h2 id="branchTitle" style="color: var(--blue);">Attendant Panel</h2>
       <p id="stationLabel" style="font-size: 14px; color: var(--gray-500); margin-top: 4px;"></p>
     </div>
     <nav>
@@ -30,7 +30,7 @@
 
     <div class="grid-2">
       <div class="card">
-        <h3 style="color: var(--blue); margin-bottom: 16px;">Call Next Consultancy Patient</h3>
+        <h3 style="color: var(--blue); margin-bottom: 16px;">Call Next Patient</h3>
         <div class="form-group">
           <label>Counter</label>
           <select id="counterSelect"></select>
@@ -84,7 +84,7 @@
       const label = selected?.counter_label || selected?.name || '';
       document.getElementById('stationLabel').textContent = label
         ? `Station: ${label} — calls appear on the TV display under ${label}`
-        : 'Select your OPD station (OPD1, OPD2, …)';
+        : 'Select your station (OPD1, OPD2, or Grooming)';
     }
 
     function applyCounterSelection(counterId) {
@@ -107,6 +107,13 @@
           applyCounterSelection(byStation.id);
           return;
         }
+        const byName = counters.find((c) =>
+          String(c.counter_label || c.name || '').toLowerCase().includes(String(stationParam).toLowerCase())
+        );
+        if (byName) {
+          applyCounterSelection(byName.id);
+          return;
+        }
       }
 
       const saved = localStorage.getItem(storageKey);
@@ -126,29 +133,33 @@
       if (!json.success) throw new Error(json.message);
       branchId = json.data.branch.id;
       services = json.data.services;
-      document.getElementById('branchTitle').textContent = json.data.branch.name + ' — OPD Attendant';
+      document.getElementById('branchTitle').textContent = json.data.branch.name + ' — Attendant';
 
       const cRes = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/counters`);
       const cJson = await cRes.json();
       counters = cJson.success ? cJson.data : [];
 
       const cntSelect = document.getElementById('counterSelect');
-      cntSelect.innerHTML = '<option value="">Select OPD Station</option>' +
-        counters.map((c) => `<option value="${c.id}">${c.counter_label || c.name}</option>`).join('');
+      cntSelect.innerHTML = '<option value="">Select Station</option>' +
+        counters.map((c) => `<option value="${c.id}">${c.counter_label || c.name}${c.service_name ? ` (${c.service_name})` : ''}</option>`).join('');
 
       resolveStationCounter();
       updateStationLabel();
     }
 
     async function refreshQueue() {
+      const counterId = getSelectedCounterId();
+      const selected = counters.find((c) => String(c.id) === String(counterId));
       let url = `/api/queue/public/${orgSlug}/${branchSlug}/queue`;
+      if (selected?.service_type_id) {
+        url += `?service_type_id=${encodeURIComponent(selected.service_type_id)}`;
+      }
 
       try {
         const res = await fetch(url);
         const json = await res.json();
         if (!json.success) throw new Error(json.message);
         const waiting = json.data.filter(t => t.status === 'waiting');
-        const counterId = getSelectedCounterId();
         const called = json.data.filter((t) => ['called', 'serving'].includes(t.status));
         const myTicket = counterId
           ? called.find((t) => String(t.counter_id) === String(counterId))
@@ -175,7 +186,7 @@
           document.getElementById('currentNumber').style.color = t.color;
           document.getElementById('currentService').textContent = t.service_name;
           document.getElementById('currentMeta').textContent = [
-            t.counter_name ? `Counter: ${t.counter_name}` : '',
+            t.counter_label || t.counter_name ? `Station: ${t.counter_label || t.counter_name}` : '',
             t.pet_name ? `Pet: ${t.pet_name}` : '',
             t.owner_name ? `Owner: ${t.owner_name}` : '',
           ].filter(Boolean).join(' · ');
@@ -212,7 +223,7 @@
       try {
         const counterId = getSelectedCounterId();
         if (!counterId && counters.length) {
-          showAlert(document.getElementById('alert'), 'Please select your OPD station first');
+          showAlert(document.getElementById('alert'), 'Please select your station first (OPD or Grooming)');
           return;
         }
 

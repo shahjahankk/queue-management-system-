@@ -482,7 +482,7 @@
       updateSoundButton();
       if (soundEnabled) {
         await unlockAudio();
-        const ok = await speakText('Queue announcements enabled. Token number 10, please proceed to OPD 1.');
+        const ok = await speakText('Queue announcements enabled. Token number 10, please proceed to Grooming.');
         if (!ok) {
           alert('Voice failed on this TV browser. Keep internet enabled and try Enable Sound again.');
         }
@@ -498,9 +498,9 @@
       if (!byCounter.length) {
         el.innerHTML = `
           <div class="opd-card idle">
-            <div class="opd-room">Consultancy</div>
+            <div class="opd-room">Queue</div>
             <div class="opd-number">—</div>
-            <div class="opd-hint">No OPD stations configured</div>
+            <div class="opd-hint">No stations configured</div>
           </div>`;
         return;
       }
@@ -513,8 +513,11 @@
         const isActive = Boolean(num);
         const flash = changed && isActive ? ' flash' : '';
         const serving = row.status === 'serving';
+        const isGrooming = /groom/i.test(String(row.counter_label || row.counter_name || row.service_name || ''));
         const hint = isActive
-          ? (serving ? 'In consultation' : 'Please proceed to room')
+          ? (serving
+              ? (isGrooming ? 'In grooming' : 'In consultation')
+              : (isGrooming ? 'Please proceed to grooming' : 'Please proceed to room'))
           : 'Waiting for patient';
 
         return `
