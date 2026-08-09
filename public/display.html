@@ -429,10 +429,10 @@
       return null;
     }
 
-    function youtubeEmbedUrl(id) {
+    function youtubeEmbedUrl(id, withSound) {
       const params = new URLSearchParams({
         autoplay: '1',
-        mute: '1', // start muted for autoplay; unmuted after Enable Sound
+        mute: withSound ? '0' : '1',
         controls: '0',
         loop: '1',
         playlist: id,
@@ -448,29 +448,106 @@
       return 'https://www.youtube.com/embed/' + id + '?' + params.toString();
     }
 
-    const AMBIENT_YT_VOLUME = 32; // soft background; token voice ducks this to mute
+    const AMBIENT_YT_VOLUME = 60; // audible background; token voice ducks this fully
     let ambientWanted = false;
     let ambientDucked = false;
+    let currentYouTubeId = null;
+    let ytPlayer = null;
+    let ytApiReady = false;
+    let ytApiLoading = false;
+
+    function loadYouTubeApi() {
+      if (ytApiReady || ytApiLoading) return;
+      if (window.YT && window.YT.Player) {
+        ytApiReady = true;
+        return;
+      }
+      ytApiLoading = true;
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = function () {
+        ytApiReady = true;
+        ytApiLoading = false;
+        if (typeof prev === 'function') prev();
+        bindYtPlayer();
+      };
+    }
+
+    function bindYtPlayer() {
+      if (!currentYouTubeId || !(window.YT && window.YT.Player)) return;
+      const el = document.getElementById('ytPlayer');
+      if (!el) return;
+      try {
+        ytPlayer = new YT.Player('ytPlayer', {
+          events: {
+            onReady: function () {
+              if (ambientWanted && soundEnabled && !ambientDucked) {
+                try {
+                  if (ytPlayer.unMute) ytPlayer.unMute();
+                  if (ytPlayer.setVolume) ytPlayer.setVolume(AMBIENT_YT_VOLUME);
+                  if (ytPlayer.playVideo) ytPlayer.playVideo();
+                } catch (_) { /* ignore */ }
+              }
+            },
+          },
+        });
+      } catch (_) { /* ignore */ }
+    }
+
+    function mountYouTube(id, withSound) {
+      currentYouTubeId = id;
+      const ytWrap = document.getElementById('ytWrap');
+      const pane = document.getElementById('videoPane');
+      if (!ytWrap || !pane) return;
+      ytPlayer = null;
+      ytWrap.innerHTML =
+        '<iframe id="ytPlayer" title="PetZone ambient video" src="' + youtubeEmbedUrl(id, withSound) + '" ' +
+        'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" ' +
+        'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+      pane.classList.add('yt-mode');
+      pane.classList.remove('mp4-mode', 'fallback');
+      loadYouTubeApi();
+      // Bind after iframe is in DOM (API may already be ready)
+      setTimeout(bindYtPlayer, 400);
+      setTimeout(bindYtPlayer, 1200);
+    }
 
     function ytCommand(func, args) {
+      try {
+        if (ytPlayer && typeof ytPlayer[func] === 'function') {
+          ytPlayer[func].apply(ytPlayer, args || []);
+          return true;
+        }
+      } catch (_) { /* fall through */ }
       const iframe = document.querySelector('#ytWrap iframe');
-      if (!iframe || !iframe.contentWindow) return;
+      if (!iframe || !iframe.contentWindow) return false;
       iframe.contentWindow.postMessage(JSON.stringify({
         event: 'command',
         func: func,
         args: args || [],
       }), '*');
+      return true;
     }
 
-    function setAmbientPlaying(on) {
-      ambientWanted = Boolean(on);
+    function applyAmbientSound(on) {
       const video = document.getElementById('displayVideo');
       const pane = document.getElementById('videoPane');
-      if (pane && pane.classList.contains('yt-mode')) {
+      if (pane && pane.classList.contains('yt-mode') && currentYouTubeId) {
         if (on) {
-          ytCommand('unMute');
-          ytCommand('setVolume', [AMBIENT_YT_VOLUME]);
-          ytCommand('playVideo');
+          // Strongest path after a user click: remount unmuted so TV browsers allow audio
+          mountYouTube(currentYouTubeId, true);
+          setTimeout(function () {
+            ytCommand('unMute');
+            ytCommand('setVolume', [AMBIENT_YT_VOLUME]);
+            ytCommand('playVideo');
+          }, 600);
+          setTimeout(function () {
+            ytCommand('unMute');
+            ytCommand('setVolume', [AMBIENT_YT_VOLUME]);
+            ytCommand('playVideo');
+          }, 1600);
         } else {
           ytCommand('mute');
           ytCommand('setVolume', [0]);
@@ -480,13 +557,19 @@
       if (video) {
         if (on) {
           video.muted = false;
-          video.volume = 0.28;
-          video.play().catch(() => {});
+          video.volume = 0.55;
+          video.play().catch(function () {});
         } else {
           video.muted = true;
           video.volume = 0;
         }
       }
+    }
+
+    function setAmbientPlaying(on) {
+      ambientWanted = Boolean(on);
+      if (!on) ambientDucked = false;
+      applyAmbientSound(on);
     }
 
     function duckAmbientAudio() {
@@ -507,7 +590,16 @@
     function restoreAmbientAudio() {
       ambientDucked = false;
       if (!ambientWanted || !soundEnabled) return;
-      setAmbientPlaying(true);
+      ytCommand('unMute');
+      ytCommand('setVolume', [AMBIENT_YT_VOLUME]);
+      ytCommand('playVideo');
+      const video = document.getElementById('displayVideo');
+      const pane = document.getElementById('videoPane');
+      if (!(pane && pane.classList.contains('yt-mode')) && video) {
+        video.muted = false;
+        video.volume = 0.55;
+        video.play().catch(function () {});
+      }
     }
 
     function displayNum(code) {
@@ -551,13 +643,7 @@
 
       // Prefer YouTube animal/4K embed (muted until Enable Sound)
       if (ytIds.length) {
-        const id = ytIds[0];
-        ytWrap.innerHTML =
-          '<iframe id="ytPlayer" title="PetZone ambient video" src="' + youtubeEmbedUrl(id) + '" ' +
-          'allow="autoplay; encrypted-media; picture-in-picture" ' +
-          'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
-        pane.classList.add('yt-mode');
-        pane.classList.remove('mp4-mode', 'fallback');
+        mountYouTube(ytIds[0], false);
         video.removeAttribute('src');
         video.load();
         return;
@@ -769,14 +855,22 @@
       localStorage.setItem('qms_display_sound', soundEnabled ? 'on' : 'off');
       updateSoundButton();
       if (soundEnabled) {
+        // MUST run inside the click (before awaits) so the browser allows video sound
+        ambientWanted = true;
+        ambientDucked = false;
+        applyAmbientSound(true);
+
         await unlockAudio();
-        // Open ambient video sound (soft). Token calls will duck it and speak louder.
-        setAmbientPlaying(true);
+        // Brief pause so unmuted YouTube can start, then duck only for the test voice
+        await new Promise((r) => setTimeout(r, 900));
         duckAmbientAudio();
         const ok = await speakText('Queue announcements enabled. Token number 10, please proceed to Grooming.');
         restoreAmbientAudio();
+        // Extra unmute retries after the voice test
+        setTimeout(function () { if (soundEnabled && ambientWanted) restoreAmbientAudio(); }, 500);
+        setTimeout(function () { if (soundEnabled && ambientWanted) restoreAmbientAudio(); }, 1500);
         if (!ok) {
-          alert('Voice failed on this TV browser. Keep internet enabled and try Enable Sound again.');
+          alert('Token voice failed on this TV. Video sound may still work — keep internet on and try again.');
         }
       } else {
         setAmbientPlaying(false);
