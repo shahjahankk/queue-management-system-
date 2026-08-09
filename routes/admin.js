@@ -181,7 +181,7 @@ router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_ad
   }
 });
 
-// ── Manual queue numbering (primary/consultation service) ───
+// ── Manual queue numbering (shared by all categories) ───
 router.get(
   '/branches/:branchId/sequence',
   authMiddleware,
@@ -202,13 +202,15 @@ router.get(
       const rows = await executeQuery(
         `SELECT
            COALESCE(MAX(s.last_number), 0) AS last_number,
-           COALESCE(MAX(t.ticket_number), 0) AS highest_issued
+           COALESCE((
+             SELECT MAX(t.ticket_number)
+             FROM qms_tickets t
+             WHERE t.branch_id = ? AND t.date_key = ?
+           ), 0) AS highest_issued
          FROM (SELECT 1) seed
          LEFT JOIN qms_daily_sequences s
-           ON s.branch_id = ? AND s.service_type_id = ? AND s.date_key = ?
-         LEFT JOIN qms_tickets t
-           ON t.branch_id = ? AND t.service_type_id = ? AND t.date_key = ?`,
-        [branch.id, service.id, dateKey, branch.id, service.id, dateKey]
+           ON s.branch_id = ? AND s.service_type_id = ? AND s.date_key = ?`,
+        [branch.id, dateKey, branch.id, service.id, dateKey]
       );
 
       const lastNumber = Number(rows[0]?.last_number || 0);
@@ -219,7 +221,7 @@ router.get(
           branch_id: branch.id,
           branch_name: branch.name,
           service_id: service.id,
-          service_name: service.name,
+          service_name: 'All categories (shared)',
           date_key: dateKey,
           last_number: lastNumber,
           highest_issued: highestIssued,
@@ -259,8 +261,8 @@ router.patch(
       const existing = await executeQuery(
         `SELECT COALESCE(MAX(ticket_number), 0) AS highest_issued
          FROM qms_tickets
-         WHERE branch_id = ? AND service_type_id = ? AND date_key = ?`,
-        [branch.id, service.id, dateKey]
+         WHERE branch_id = ? AND date_key = ?`,
+        [branch.id, dateKey]
       );
       const highestIssued = Number(existing[0]?.highest_issued || 0);
       if (nextNumber <= highestIssued) {
@@ -280,7 +282,7 @@ router.patch(
 
       res.json({
         success: true,
-        message: `Next token for ${branch.name} will be ${nextNumber}`,
+        message: `Next token for all categories at ${branch.name} will be ${nextNumber}`,
         data: { next_number: nextNumber },
       });
     } catch (err) {
@@ -309,19 +311,19 @@ router.delete(
       await conn.beginTransaction();
       const [deleted] = await conn.execute(
         `DELETE FROM qms_tickets
-         WHERE branch_id = ? AND service_type_id = ? AND date_key = ?`,
-        [branch.id, service.id, dateKey]
+         WHERE branch_id = ? AND date_key = ?`,
+        [branch.id, dateKey]
       );
       await conn.execute(
         `DELETE FROM qms_daily_sequences
-         WHERE branch_id = ? AND service_type_id = ? AND date_key = ?`,
-        [branch.id, service.id, dateKey]
+         WHERE branch_id = ? AND date_key = ?`,
+        [branch.id, dateKey]
       );
       await conn.commit();
 
       res.json({
         success: true,
-        message: `${branch.name} reset. The next token will be 1.`,
+        message: `${branch.name} reset for all categories. The next token will be 1.`,
         data: { deleted_tickets: deleted.affectedRows, next_number: 1 },
       });
     } catch (err) {

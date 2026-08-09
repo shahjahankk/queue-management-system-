@@ -119,7 +119,7 @@
           </table>
         </div>
         <div class="alert alert-error" style="margin-top: 16px;">
-          <strong>Reset Today</strong> deletes today’s consultation tokens for that branch and starts the next token at 1.
+          <strong>Reset Today</strong> deletes today’s tokens for all categories on that branch and starts the next token at 1.
         </div>
       </div>
     </div>
@@ -377,7 +377,7 @@
     window.resetToday = async (branchId) => {
       const branch = branches.find((b) => b.id === branchId);
       const typed = prompt(
-        `This deletes ALL of today's consultation tokens for ${branch?.name || 'this branch'} and starts again at 1.\n\nType RESET to continue:`
+        `This deletes ALL of today's tokens for every category at ${branch?.name || 'this branch'} and starts again at 1.\n\nType RESET to continue:`
       );
       if (typed !== 'RESET') return;
 

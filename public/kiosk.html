@@ -141,7 +141,7 @@
           </div>
         </div>
         <div class="alert alert-error" style="font-size:13px;">
-          Reset deletes today’s consultation tokens and starts again from 1.
+          Reset deletes today’s tokens for all categories and starts again from 1.
         </div>
         <button type="button" class="btn btn-outline" id="btnResetNumbers" style="width:100%;color:#b91c1c;border-color:#b91c1c;">
           Reset Today to 1
@@ -259,7 +259,7 @@
 
     document.getElementById('btnResetNumbers').addEventListener('click', async () => {
       const typed = prompt(
-        `This deletes ALL of today's consultation tokens for ${branchData?.branch?.name || 'this branch'}.\n\nType RESET to continue:`
+        `This deletes ALL of today's tokens for every category at ${branchData?.branch?.name || 'this branch'}.\n\nType RESET to continue:`
       );
       if (typed !== 'RESET') return;
 

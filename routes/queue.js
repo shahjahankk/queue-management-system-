@@ -60,6 +60,34 @@ async function getActiveServices(branchId) {
   );
 }
 
+/**
+ * One shared daily counter for the whole branch (Consultation + Grooming).
+ * Stored on the primary/consultation service_type row so Number Settings stays one place.
+ */
+async function allocateSharedTicketNumber(conn, branchId, dateKey) {
+  const sequenceOwner = await getConsultationService(branchId);
+  if (!sequenceOwner) {
+    throw new Error('No shared queue sequence configured for this branch');
+  }
+
+  await conn.execute(
+    `INSERT INTO qms_daily_sequences (branch_id, service_type_id, date_key, last_number)
+     VALUES (?, ?, ?, 1)
+     ON DUPLICATE KEY UPDATE last_number = last_number + 1`,
+    [branchId, sequenceOwner.id, dateKey]
+  );
+
+  const [seqRows] = await conn.execute(
+    'SELECT last_number FROM qms_daily_sequences WHERE branch_id = ? AND service_type_id = ? AND date_key = ?',
+    [branchId, sequenceOwner.id, dateKey]
+  );
+
+  return {
+    ticketNumber: Number(seqRows[0].last_number),
+    sequenceOwnerId: sequenceOwner.id,
+  };
+}
+
 /** OPD 1 → OPD1; Grooming / other names keep their display name for TV + voice */
 function formatCounterLabel(counterName, index = 0) {
   const name = String(counterName || '').trim();
@@ -168,7 +196,7 @@ router.get('/resolve', async (req, res) => {
   }
 });
 
-// ── Simple token: plain number 28, 29, 30 … (consultancy only) ──
+// ── Simple token: plain number from shared branch sequence ──
 router.post('/public/:orgSlug/:branchSlug/token', async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -184,18 +212,7 @@ router.post('/public/:orgSlug/:branchSlug/token', async (req, res) => {
 
     await conn.beginTransaction();
 
-    await conn.execute(
-      `INSERT INTO qms_daily_sequences (branch_id, service_type_id, date_key, last_number)
-       VALUES (?, ?, ?, 1)
-       ON DUPLICATE KEY UPDATE last_number = last_number + 1`,
-      [branch.id, service.id, dateKey]
-    );
-
-    const [seqRows] = await conn.execute(
-      'SELECT last_number FROM qms_daily_sequences WHERE branch_id = ? AND service_type_id = ? AND date_key = ?',
-      [branch.id, service.id, dateKey]
-    );
-    const ticketNumber = seqRows[0].last_number;
+    const { ticketNumber } = await allocateSharedTicketNumber(conn, branch.id, dateKey);
     const ticketCode = String(ticketNumber);
 
     const [insertResult] = await conn.execute(
@@ -257,7 +274,7 @@ router.get('/public/:orgSlug/:branchSlug', async (req, res) => {
   }
 });
 
-// ── Issue a new ticket (kiosk - no auth required) ───────────
+// ── Issue a new ticket (shared number sequence for all categories) ──
 router.post('/public/:orgSlug/:branchSlug/tickets', async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -281,19 +298,9 @@ router.post('/public/:orgSlug/:branchSlug/tickets', async (req, res) => {
 
     await conn.beginTransaction();
 
-    await conn.execute(
-      `INSERT INTO qms_daily_sequences (branch_id, service_type_id, date_key, last_number)
-       VALUES (?, ?, ?, 1)
-       ON DUPLICATE KEY UPDATE last_number = last_number + 1`,
-      [branch.id, service.id, dateKey]
-    );
-
-    const [seqRows] = await conn.execute(
-      'SELECT last_number FROM qms_daily_sequences WHERE branch_id = ? AND service_type_id = ? AND date_key = ?',
-      [branch.id, service.id, dateKey]
-    );
-    const ticketNumber = seqRows[0].last_number;
-    const ticketCode = `${service.prefix}${String(ticketNumber).padStart(3, '0')}`;
+    // Same counter as Consultation Number Settings (28, 29, 30…) for every category
+    const { ticketNumber } = await allocateSharedTicketNumber(conn, branch.id, dateKey);
+    const ticketCode = String(ticketNumber);
 
     const [insertResult] = await conn.execute(
       `INSERT INTO qms_tickets
