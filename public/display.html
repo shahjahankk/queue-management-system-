@@ -287,6 +287,7 @@
     const announcementState = new Map();
     let announcementsInitialized = false;
     let soundEnabled = localStorage.getItem('qms_display_sound') === 'on';
+    let sharedContext = null;
 
     function displayNum(code) {
       if (!code) return null;
@@ -301,41 +302,127 @@
       });
     }
 
+    function getAudioContext() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+      if (!sharedContext || sharedContext.state === 'closed') {
+        sharedContext = new AudioContextClass();
+      }
+      return sharedContext;
+    }
+
+    async function unlockAudio() {
+      const context = getAudioContext();
+      if (!context) return false;
+      try {
+        if (context.state === 'suspended') await context.resume();
+        const buffer = context.createBuffer(1, 1, context.sampleRate || 22050);
+        const source = context.createBufferSource();
+        const gain = context.createGain();
+        gain.gain.value = 0.001;
+        source.buffer = buffer;
+        source.connect(gain);
+        gain.connect(context.destination);
+        source.start(0);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     function playChime() {
       try {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return;
-        const context = new AudioContextClass();
+        const context = getAudioContext();
+        if (!context) return;
+        if (context.state === 'suspended') context.resume().catch(() => {});
         const gain = context.createGain();
         gain.connect(context.destination);
         gain.gain.setValueAtTime(0.0001, context.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.65);
+        gain.gain.exponentialRampToValueAtTime(0.22, context.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.7);
         [660, 880].forEach((frequency, index) => {
           const oscillator = context.createOscillator();
           oscillator.frequency.value = frequency;
           oscillator.connect(gain);
           oscillator.start(context.currentTime + index * 0.18);
-          oscillator.stop(context.currentTime + 0.35 + index * 0.18);
+          oscillator.stop(context.currentTime + 0.38 + index * 0.18);
         });
-        setTimeout(() => context.close().catch(() => {}), 900);
-      } catch (_) { /* speech may still be available */ }
+      } catch (_) { /* ignore */ }
     }
 
-    function speakAnnouncement(row, isRecall) {
+    async function fetchSpeechBuffer(text) {
+      const phrase = String(text || '').trim().slice(0, 160);
+      if (!phrase) return null;
+      const encoded = encodeURIComponent(phrase);
+      const candidates = [
+        '/api/queue/public/announce-tts?text=' + encoded,
+        'https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=' + encoded,
+        'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=' + encoded,
+      ];
+      for (let i = 0; i < candidates.length; i++) {
+        try {
+          const res = await fetch(candidates[i], { cache: 'no-store', mode: 'cors' });
+          if (!res.ok) continue;
+          const contentType = String(res.headers.get('content-type') || '');
+          if (contentType.indexOf('json') >= 0 || contentType.indexOf('text/html') >= 0) continue;
+          const data = await res.arrayBuffer();
+          if (!data || data.byteLength < 200) continue;
+          return data;
+        } catch (_) { /* next */ }
+      }
+      return null;
+    }
+
+    async function playArrayBuffer(arrayBuffer) {
+      const context = getAudioContext();
+      if (!context || !arrayBuffer) return false;
+      try {
+        if (context.state === 'suspended') await context.resume();
+        const audioBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
+        const source = context.createBufferSource();
+        const gain = context.createGain();
+        gain.gain.value = 1;
+        source.buffer = audioBuffer;
+        source.connect(gain);
+        gain.connect(context.destination);
+        source.start(0);
+        await new Promise((resolve) => {
+          source.onended = resolve;
+          setTimeout(resolve, Math.ceil((audioBuffer.duration || 4) * 1000) + 400);
+        });
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    // Free spoken MP3 through unlocked Web Audio (Smart TV safe)
+    async function speakText(text) {
+      const phrase = String(text || '').trim().slice(0, 160);
+      if (!phrase) return false;
+      await unlockAudio();
+      const buffer = await fetchSpeechBuffer(phrase);
+      if (buffer && await playArrayBuffer(buffer)) return true;
+      if (!('speechSynthesis' in window)) return false;
+      return new Promise((resolve) => {
+        try {
+          const utterance = new SpeechSynthesisUtterance(phrase);
+          utterance.rate = 0.88;
+          utterance.onend = () => resolve(true);
+          utterance.onerror = () => resolve(false);
+          window.speechSynthesis.speak(utterance);
+        } catch (_) { resolve(false); }
+      });
+    }
+
+    async function speakAnnouncement(row, isRecall) {
       if (!soundEnabled || !row.ticket_code) return;
       playChime();
-      if (!('speechSynthesis' in window)) return;
+      await new Promise((r) => setTimeout(r, 550));
       const number = displayNum(row.ticket_code) || row.ticket_code;
       const counter = row.counter_label || row.counter_name || 'the counter';
       const prefix = isRecall ? 'Recall. ' : '';
-      const utterance = new SpeechSynthesisUtterance(
-        `${prefix}Token number ${number}, please proceed to ${counter}.`
-      );
-      utterance.rate = 0.88;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-      window.speechSynthesis.speak(utterance);
+      await speakText(prefix + 'Token number ' + number + ', please proceed to ' + counter + '.');
     }
 
     function announceChanges(rows) {
@@ -366,17 +453,16 @@
       button.classList.toggle('enabled', soundEnabled);
     }
 
-    document.getElementById('soundToggle').addEventListener('click', () => {
+    document.getElementById('soundToggle').addEventListener('click', async () => {
       soundEnabled = !soundEnabled;
       localStorage.setItem('qms_display_sound', soundEnabled ? 'on' : 'off');
       updateSoundButton();
       if (soundEnabled) {
-        playChime();
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.speak(new SpeechSynthesisUtterance('Queue announcements enabled.'));
+        await unlockAudio();
+        const ok = await speakText('Queue announcements enabled. Token number 10, please proceed to OPD 1.');
+        if (!ok) {
+          alert('Voice failed on this TV browser. Keep internet enabled and try Enable Sound again.');
         }
-      } else if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
       }
     });
 

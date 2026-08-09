@@ -338,6 +338,59 @@ router.get('/public/:orgSlug/:branchSlug/counters', async (req, res) => {
   }
 });
 
+// Free spoken announcements for Smart TV displays (no browser TTS required).
+// Proxies Google Translate TTS so the TV plays normal MP3 audio same-origin.
+router.get('/public/announce-tts', async (req, res) => {
+  try {
+    const text = String(req.query.text || '').trim().slice(0, 160);
+    if (!text) {
+      return res.status(400).json({ success: false, message: 'text is required' });
+    }
+
+    const encoded = encodeURIComponent(text);
+    const providers = [
+      `https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=${encoded}`,
+      `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=${encoded}`,
+    ];
+
+    let buffer = null;
+    for (const url of providers) {
+      try {
+        const upstream = await fetch(url, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'audio/mpeg,audio/*;q=0.9,*/*;q=0.8',
+          },
+        });
+        if (!upstream.ok) continue;
+        const contentType = String(upstream.headers.get('content-type') || '');
+        if (contentType.includes('json') || contentType.includes('text/html')) continue;
+        const data = Buffer.from(await upstream.arrayBuffer());
+        if (data.length < 200) continue;
+        buffer = data;
+        break;
+      } catch (_) {
+        /* try next provider */
+      }
+    }
+
+    if (!buffer) {
+      return res.status(502).json({
+        success: false,
+        message: 'Speech audio provider unavailable',
+      });
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.send(buffer);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── Live queue status (display screen) ──────────────────────
 router.get('/public/:orgSlug/:branchSlug/status', async (req, res) => {
   try {
