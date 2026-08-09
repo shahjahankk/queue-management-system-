@@ -175,6 +175,14 @@ router.post('/public/:orgSlug/:branchSlug/token', async (req, res) => {
 
     await conn.commit();
 
+    const waitingRows = await executeQuery(
+      `SELECT COUNT(*) AS cnt
+       FROM qms_tickets
+       WHERE branch_id = ? AND service_type_id = ? AND date_key = ?
+         AND status = 'waiting' AND id <> ?`,
+      [branch.id, service.id, dateKey, insertResult.insertId]
+    );
+
     res.status(201).json({
       success: true,
       data: {
@@ -182,6 +190,8 @@ router.post('/public/:orgSlug/:branchSlug/token', async (req, res) => {
         ticket_code: ticketCode,
         ticket_number: ticketNumber,
         branch_name: branch.name,
+        service_name: service.name,
+        waiting_ahead: Number(waitingRows[0]?.cnt || 0),
         issued_at: new Date().toISOString(),
         date_key: dateKey,
       },

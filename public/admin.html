@@ -41,6 +41,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="organizations">Organizations</button>
         <button class="tab" data-tab="branches">Branches</button>
+        <button class="tab" data-tab="numbers">Queue Numbers</button>
         <button class="tab" data-tab="users">Users</button>
         <button class="tab" data-tab="links">Quick Links</button>
       </div>
@@ -92,6 +93,34 @@
         <h2 style="color: var(--blue); margin-bottom: 16px;">Branch Quick Links</h2>
         <p style="color: var(--gray-500); margin-bottom: 20px;">Share these URLs with each branch for kiosk, TV display, and staff counter.</p>
         <div id="linksGrid" class="grid-2"></div>
+      </div>
+
+      <!-- Manual queue numbering -->
+      <div id="tab-numbers" class="tab-panel hidden">
+        <h2 style="color: var(--blue); margin-bottom: 8px;">Queue Number Control</h2>
+        <p style="color: var(--gray-500); margin-bottom: 20px;">
+          Set the next consultation token for today, or reset today and start again from 1.
+        </p>
+        <div class="card" style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Branch</th>
+                <th>Service</th>
+                <th>Last Issued</th>
+                <th>Next Number</th>
+                <th>Set Next Number</th>
+                <th>Reset Today</th>
+              </tr>
+            </thead>
+            <tbody id="sequenceTable">
+              <tr><td colspan="6">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="alert alert-error" style="margin-top: 16px;">
+          <strong>Reset Today</strong> deletes today’s consultation tokens for that branch and starts the next token at 1.
+        </div>
       </div>
     </div>
   </div>
@@ -151,6 +180,7 @@
     let currentUser = null;
     let orgs = [];
     let branches = [];
+    let sequenceStatus = {};
 
     function showTab(name) {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
@@ -220,6 +250,9 @@
         } else {
           document.querySelector('[data-tab="organizations"]').style.display = 'none';
         }
+        if (currentUser.role === 'branch_staff') {
+          document.querySelector('[data-tab="numbers"]').style.display = 'none';
+        }
 
         const bRes = await api('/api/admin/branches');
         branches = bRes.data;
@@ -249,6 +282,10 @@
           </div>
         `).join('');
 
+        if (currentUser.role !== 'branch_staff') {
+          await loadSequenceData();
+        }
+
         try {
           const uRes = await api('/api/admin/users');
           document.getElementById('userTable').innerHTML = uRes.data.map(u => `
@@ -267,6 +304,93 @@
         showAlert(document.getElementById('adminAlert'), err.message);
       }
     }
+
+    async function loadSequenceData() {
+      const tbody = document.getElementById('sequenceTable');
+      tbody.innerHTML = '<tr><td colspan="6">Loading…</td></tr>';
+
+      const results = await Promise.all(branches.map(async (branch) => {
+        try {
+          const res = await api(`/api/admin/branches/${branch.id}/sequence`);
+          sequenceStatus[branch.id] = res.data;
+          return { branch, data: res.data };
+        } catch (err) {
+          return { branch, error: err.message };
+        }
+      }));
+
+      tbody.innerHTML = results.map(({ branch, data, error }) => {
+        if (error) {
+          return `<tr>
+            <td><strong>${branch.name}</strong></td>
+            <td colspan="5" style="color: var(--red);">${error}</td>
+          </tr>`;
+        }
+        return `<tr>
+          <td><strong>${branch.name}</strong></td>
+          <td>${data.service_name}</td>
+          <td>${data.highest_issued || 0}</td>
+          <td><strong>${data.next_number}</strong></td>
+          <td>
+            <div style="display:flex;gap:8px;align-items:center;min-width:180px;">
+              <input
+                id="nextNumber-${branch.id}"
+                type="number"
+                min="1"
+                max="999999"
+                step="1"
+                value="${data.next_number}"
+                style="width:95px;padding:8px;"
+              >
+              <button class="btn btn-sm btn-primary" onclick="setNextNumber(${branch.id})">Set</button>
+            </div>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline" style="color:#b91c1c;border-color:#b91c1c;" onclick="resetToday(${branch.id})">
+              Reset to 1
+            </button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    window.setNextNumber = async (branchId) => {
+      const input = document.getElementById(`nextNumber-${branchId}`);
+      const nextNumber = Number(input.value);
+      if (!Number.isInteger(nextNumber) || nextNumber < 1) {
+        showAlert(document.getElementById('adminAlert'), 'Enter a valid whole number (1 or higher)');
+        return;
+      }
+
+      try {
+        const res = await api(`/api/admin/branches/${branchId}/sequence`, {
+          method: 'PATCH',
+          body: JSON.stringify({ next_number: nextNumber }),
+        });
+        showAlert(document.getElementById('adminAlert'), res.message, 'success');
+        await loadSequenceData();
+      } catch (err) {
+        showAlert(document.getElementById('adminAlert'), err.message);
+      }
+    };
+
+    window.resetToday = async (branchId) => {
+      const branch = branches.find((b) => b.id === branchId);
+      const typed = prompt(
+        `This deletes ALL of today's consultation tokens for ${branch?.name || 'this branch'} and starts again at 1.\n\nType RESET to continue:`
+      );
+      if (typed !== 'RESET') return;
+
+      try {
+        const res = await api(`/api/admin/branches/${branchId}/sequence/today`, {
+          method: 'DELETE',
+        });
+        showAlert(document.getElementById('adminAlert'), res.message, 'success');
+        await loadSequenceData();
+      } catch (err) {
+        showAlert(document.getElementById('adminAlert'), err.message);
+      }
+    };
 
     window.toggleOrg = async (id, active) => {
       await api(`/api/admin/organizations/${id}`, { method: 'PATCH', body: JSON.stringify({ is_active: active }) });

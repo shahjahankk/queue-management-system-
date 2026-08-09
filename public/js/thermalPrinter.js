@@ -4,7 +4,7 @@
  * - Web Serial (COM / USB-serial adapters)
  * - Browser/system print dialog ONLY when user explicitly chooses System Print
  * Chrome/Edge desktop only.
- * Version: 20260805b — real PNG logo + safe cut margin
+ * Version: 20260809c — large token number + real PNG logo + safe cut
  */
 (function (global) {
   const USB_STORAGE_KEY = 'qmsThermalUsb';
@@ -621,20 +621,25 @@
       console.warn('QMS logo print skipped:', e);
     }
 
-    out.push(...esc(0x1b, 0x4d, 0x01)); // Font B
-    out.push(...boldOn());
+    out.push(...esc(0x1b, 0x4d, 0x00)); // Font A
+    out.push(...esc(0x1b, 0x21, 0x18)); // bold + double height
     out.push(...line('PetZone'));
-    out.push(...boldOff());
+    out.push(...esc(0x1b, 0x21, 0x00));
 
-    if (serviceName) out.push(...line(String(serviceName).slice(0, 48)));
+    if (serviceName) {
+      out.push(...boldOn());
+      out.push(...line(String(serviceName).slice(0, 42)));
+      out.push(...boldOff());
+    }
 
-    out.push(...esc(0x1b, 0x4d, 0x00));
-    out.push(...esc(0x1b, 0x21, 0x30));
+    out.push(...feed(1));
+    out.push(...esc(0x1d, 0x21, 0x33)); // 4× width and height
     out.push(...boldOn());
     out.push(...line(String(ticketCode || '---')));
     out.push(...boldOff());
-    out.push(...esc(0x1b, 0x21, 0x00));
-    out.push(...esc(0x1b, 0x4d, 0x01));
+    out.push(...esc(0x1d, 0x21, 0x00));
+    out.push(...feed(1));
+    out.push(...esc(0x1b, 0x4d, 0x01)); // compact details
 
     if (branchName) out.push(...line(String(branchName).slice(0, 48)));
     if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 42)}`));

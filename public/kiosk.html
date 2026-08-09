@@ -53,6 +53,7 @@
       <button type="button" class="btn btn-outline printer-btn" id="btnConnectSerial">Serial / COM</button>
       <button type="button" class="btn btn-outline printer-btn" id="btnConnectAuto">Auto</button>
       <button type="button" class="btn btn-outline printer-btn" id="btnSystemPrint">System Print</button>
+      <button type="button" class="btn btn-outline" id="btnNumberSettings">⚙ Number Settings</button>
       <span id="printerStatus" style="font-size:13px;color:var(--gray-500);"></span>
     </div>
 
@@ -101,8 +102,61 @@
     </div>
   </div>
 
-  <script src="/js/app.js?v=20260805b"></script>
-  <script src="/js/thermalPrinter.js?v=20260805b"></script>
+  <div id="modalNumberSettings" class="modal-overlay hidden no-print">
+    <div class="modal" style="max-width:520px;">
+      <h3 style="color:var(--blue);margin-bottom:8px;">Queue Number Settings</h3>
+      <p style="color:var(--gray-500);font-size:14px;margin-bottom:18px;">
+        Admin access is required to change today’s queue.
+      </p>
+
+      <div id="numberLoginPanel">
+        <div class="form-group">
+          <label>QMS Admin Email</label>
+          <input type="email" id="numberAdminEmail" value="admin@petzone.com">
+        </div>
+        <div class="form-group">
+          <label>QMS Admin Password</label>
+          <input type="password" id="numberAdminPassword">
+        </div>
+        <button type="button" class="btn btn-primary" id="btnUnlockNumbers" style="width:100%;">
+          Unlock Number Controls
+        </button>
+      </div>
+
+      <div id="numberControlPanel" class="hidden">
+        <div class="grid-2" style="margin-bottom:16px;">
+          <div class="card" style="padding:14px;text-align:center;">
+            <div style="font-size:12px;color:var(--gray-500);">Last Issued</div>
+            <strong id="numberLastIssued" style="font-size:28px;">0</strong>
+          </div>
+          <div class="card" style="padding:14px;text-align:center;">
+            <div style="font-size:12px;color:var(--gray-500);">Next Token</div>
+            <strong id="numberNextValue" style="font-size:28px;color:var(--blue);">1</strong>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Set next token number</label>
+          <div style="display:flex;gap:8px;">
+            <input type="number" id="numberNextInput" min="1" step="1" value="1">
+            <button type="button" class="btn btn-primary" id="btnSetNextNumber">Set Next</button>
+          </div>
+        </div>
+        <div class="alert alert-error" style="font-size:13px;">
+          Reset deletes today’s consultation tokens and starts again from 1.
+        </div>
+        <button type="button" class="btn btn-outline" id="btnResetNumbers" style="width:100%;color:#b91c1c;border-color:#b91c1c;">
+          Reset Today to 1
+        </button>
+      </div>
+
+      <button type="button" class="btn btn-outline" id="btnCloseNumberSettings" style="width:100%;margin-top:14px;">
+        Close
+      </button>
+    </div>
+  </div>
+
+  <script src="/js/app.js?v=20260809c"></script>
+  <script src="/js/thermalPrinter.js?v=20260809c"></script>
   <script>
     const parts = location.pathname.split('/').filter(Boolean);
     const orgSlug = parts[1] || 'petzone';
@@ -113,6 +167,117 @@
     let lastTicket = null;
     let preferBrowser = false; // ONLY true when user clicks System Print
     let activeTransport = null;
+    let numberSettingsBusy = false;
+
+    function setNumberSettingsBusy(busy) {
+      numberSettingsBusy = busy;
+      document.getElementById('btnUnlockNumbers').disabled = busy;
+      document.getElementById('btnSetNextNumber').disabled = busy;
+      document.getElementById('btnResetNumbers').disabled = busy;
+    }
+
+    function showNumberLogin() {
+      document.getElementById('numberLoginPanel').classList.remove('hidden');
+      document.getElementById('numberControlPanel').classList.add('hidden');
+    }
+
+    async function loadNumberSettings() {
+      if (!branchData?.branch?.id) throw new Error('Queue branch is still loading');
+      const res = await api(`/api/admin/branches/${branchData.branch.id}/sequence`);
+      const data = res.data;
+      document.getElementById('numberLastIssued').textContent = data.highest_issued || 0;
+      document.getElementById('numberNextValue').textContent = data.next_number;
+      document.getElementById('numberNextInput').value = data.next_number;
+      document.getElementById('numberLoginPanel').classList.add('hidden');
+      document.getElementById('numberControlPanel').classList.remove('hidden');
+    }
+
+    document.getElementById('btnNumberSettings').addEventListener('click', async () => {
+      openModal('modalNumberSettings');
+      if (!getToken()) {
+        showNumberLogin();
+        return;
+      }
+      setNumberSettingsBusy(true);
+      try {
+        await loadNumberSettings();
+      } catch (err) {
+        setToken(null);
+        showNumberLogin();
+        showAlert(document.getElementById('alert'), 'Admin session expired. Sign in again.');
+      } finally {
+        setNumberSettingsBusy(false);
+      }
+    });
+
+    document.getElementById('btnCloseNumberSettings').addEventListener('click', () => {
+      closeModal('modalNumberSettings');
+    });
+
+    document.getElementById('btnUnlockNumbers').addEventListener('click', async () => {
+      setNumberSettingsBusy(true);
+      try {
+        const res = await api('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: document.getElementById('numberAdminEmail').value.trim(),
+            password: document.getElementById('numberAdminPassword').value,
+          }),
+        });
+        setToken(res.token);
+        document.getElementById('numberAdminPassword').value = '';
+        await loadNumberSettings();
+        showAlert(document.getElementById('alert'), 'Queue number controls unlocked', 'success');
+      } catch (err) {
+        setToken(null);
+        showNumberLogin();
+        showAlert(document.getElementById('alert'), err.message);
+      } finally {
+        setNumberSettingsBusy(false);
+      }
+    });
+
+    document.getElementById('btnSetNextNumber').addEventListener('click', async () => {
+      const nextNumber = Number(document.getElementById('numberNextInput').value);
+      if (!Number.isInteger(nextNumber) || nextNumber < 1) {
+        showAlert(document.getElementById('alert'), 'Enter a whole number (1 or higher)');
+        return;
+      }
+      setNumberSettingsBusy(true);
+      try {
+        const res = await api(`/api/admin/branches/${branchData.branch.id}/sequence`, {
+          method: 'PATCH',
+          body: JSON.stringify({ next_number: nextNumber }),
+        });
+        await loadNumberSettings();
+        showAlert(document.getElementById('alert'), res.message, 'success');
+      } catch (err) {
+        showAlert(document.getElementById('alert'), err.message);
+      } finally {
+        setNumberSettingsBusy(false);
+      }
+    });
+
+    document.getElementById('btnResetNumbers').addEventListener('click', async () => {
+      const typed = prompt(
+        `This deletes ALL of today's consultation tokens for ${branchData?.branch?.name || 'this branch'}.\n\nType RESET to continue:`
+      );
+      if (typed !== 'RESET') return;
+
+      setNumberSettingsBusy(true);
+      try {
+        const res = await api(`/api/admin/branches/${branchData.branch.id}/sequence/today`, {
+          method: 'DELETE',
+        });
+        lastTicket = null;
+        await loadNumberSettings();
+        showAlert(document.getElementById('alert'), res.message, 'success');
+      } catch (err) {
+        showAlert(document.getElementById('alert'), err.message);
+      } finally {
+        setNumberSettingsBusy(false);
+      }
+    });
 
     function setPrinterStatus(text, ok) {
       const el = document.getElementById('printerStatus');

@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
-const { executeQuery } = require('../config/database');
+const { pool, executeQuery } = require('../config/database');
 const { authMiddleware, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -11,6 +11,40 @@ function slugify(text) {
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function getManagedBranch(req, branchId) {
+  const rows = await executeQuery(
+    `SELECT b.id, b.org_id, b.name
+     FROM qms_branches b
+     WHERE b.id = ?
+     LIMIT 1`,
+    [branchId]
+  );
+  const branch = rows[0] || null;
+  if (!branch) return null;
+  if (req.user.role === 'super_admin') return branch;
+  if (req.user.role === 'org_admin' && branch.org_id === req.user.org_id) return branch;
+  return null;
+}
+
+async function getPrimaryService(branchId) {
+  const preferred = await executeQuery(
+    `SELECT id, name, prefix
+     FROM qms_service_types
+     WHERE branch_id = ? AND is_active = 1
+     ORDER BY
+       CASE WHEN LOWER(name) LIKE '%consult%' OR LOWER(name) LIKE '%opd%' THEN 0 ELSE 1 END,
+       display_order,
+       id
+     LIMIT 1`,
+    [branchId]
+  );
+  return preferred[0] || null;
 }
 
 // ── Organizations (super_admin only) ────────────────────────
@@ -146,6 +180,158 @@ router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_ad
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// ── Manual queue numbering (primary/consultation service) ───
+router.get(
+  '/branches/:branchId/sequence',
+  authMiddleware,
+  requireRole('super_admin', 'org_admin'),
+  async (req, res) => {
+    try {
+      const branch = await getManagedBranch(req, parseInt(req.params.branchId, 10));
+      if (!branch) {
+        return res.status(404).json({ success: false, message: 'Branch not found or not permitted' });
+      }
+
+      const service = await getPrimaryService(branch.id);
+      if (!service) {
+        return res.status(404).json({ success: false, message: 'No active queue service configured' });
+      }
+
+      const dateKey = todayKey();
+      const rows = await executeQuery(
+        `SELECT
+           COALESCE(MAX(s.last_number), 0) AS last_number,
+           COALESCE(MAX(t.ticket_number), 0) AS highest_issued
+         FROM (SELECT 1) seed
+         LEFT JOIN qms_daily_sequences s
+           ON s.branch_id = ? AND s.service_type_id = ? AND s.date_key = ?
+         LEFT JOIN qms_tickets t
+           ON t.branch_id = ? AND t.service_type_id = ? AND t.date_key = ?`,
+        [branch.id, service.id, dateKey, branch.id, service.id, dateKey]
+      );
+
+      const lastNumber = Number(rows[0]?.last_number || 0);
+      const highestIssued = Number(rows[0]?.highest_issued || 0);
+      res.json({
+        success: true,
+        data: {
+          branch_id: branch.id,
+          branch_name: branch.name,
+          service_id: service.id,
+          service_name: service.name,
+          date_key: dateKey,
+          last_number: lastNumber,
+          highest_issued: highestIssued,
+          next_number: Math.max(lastNumber, highestIssued) + 1,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.patch(
+  '/branches/:branchId/sequence',
+  authMiddleware,
+  requireRole('super_admin', 'org_admin'),
+  async (req, res) => {
+    try {
+      const nextNumber = Number(req.body.next_number);
+      if (!Number.isInteger(nextNumber) || nextNumber < 1 || nextNumber > 999999) {
+        return res.status(400).json({
+          success: false,
+          message: 'Next number must be a whole number from 1 to 999999',
+        });
+      }
+
+      const branch = await getManagedBranch(req, parseInt(req.params.branchId, 10));
+      if (!branch) {
+        return res.status(404).json({ success: false, message: 'Branch not found or not permitted' });
+      }
+      const service = await getPrimaryService(branch.id);
+      if (!service) {
+        return res.status(404).json({ success: false, message: 'No active queue service configured' });
+      }
+
+      const dateKey = todayKey();
+      const existing = await executeQuery(
+        `SELECT COALESCE(MAX(ticket_number), 0) AS highest_issued
+         FROM qms_tickets
+         WHERE branch_id = ? AND service_type_id = ? AND date_key = ?`,
+        [branch.id, service.id, dateKey]
+      );
+      const highestIssued = Number(existing[0]?.highest_issued || 0);
+      if (nextNumber <= highestIssued) {
+        return res.status(409).json({
+          success: false,
+          message: `Number ${nextNumber} was already reached today. Choose ${highestIssued + 1} or higher, or reset today first.`,
+        });
+      }
+
+      await executeQuery(
+        `INSERT INTO qms_daily_sequences
+           (branch_id, service_type_id, date_key, last_number)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE last_number = VALUES(last_number)`,
+        [branch.id, service.id, dateKey, nextNumber - 1]
+      );
+
+      res.json({
+        success: true,
+        message: `Next token for ${branch.name} will be ${nextNumber}`,
+        data: { next_number: nextNumber },
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+router.delete(
+  '/branches/:branchId/sequence/today',
+  authMiddleware,
+  requireRole('super_admin', 'org_admin'),
+  async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+      const branch = await getManagedBranch(req, parseInt(req.params.branchId, 10));
+      if (!branch) {
+        return res.status(404).json({ success: false, message: 'Branch not found or not permitted' });
+      }
+      const service = await getPrimaryService(branch.id);
+      if (!service) {
+        return res.status(404).json({ success: false, message: 'No active queue service configured' });
+      }
+
+      const dateKey = todayKey();
+      await conn.beginTransaction();
+      const [deleted] = await conn.execute(
+        `DELETE FROM qms_tickets
+         WHERE branch_id = ? AND service_type_id = ? AND date_key = ?`,
+        [branch.id, service.id, dateKey]
+      );
+      await conn.execute(
+        `DELETE FROM qms_daily_sequences
+         WHERE branch_id = ? AND service_type_id = ? AND date_key = ?`,
+        [branch.id, service.id, dateKey]
+      );
+      await conn.commit();
+
+      res.json({
+        success: true,
+        message: `${branch.name} reset. The next token will be 1.`,
+        data: { deleted_tickets: deleted.affectedRows, next_number: 1 },
+      });
+    } catch (err) {
+      await conn.rollback();
+      res.status(500).json({ success: false, message: err.message });
+    } finally {
+      conn.release();
+    }
+  }
+);
 
 // ── Service Types ───────────────────────────────────────────
 router.get('/branches/:branchId/services', authMiddleware, async (req, res) => {
