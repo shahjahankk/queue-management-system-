@@ -517,14 +517,21 @@
       const pane = document.getElementById('videoPane');
       if (!ytWrap || !pane) return;
       ytPlayer = null;
-      ytWrap.innerHTML =
-        '<iframe id="ytPlayer" title="PetZone ambient video" src="' + youtubeEmbedUrl(id, withSound) + '" ' +
-        'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" ' +
-        'allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+      // Hard teardown so TVs swap videos without a full page refresh
+      ytWrap.innerHTML = '';
       pane.classList.add('yt-mode');
       pane.classList.remove('mp4-mode', 'fallback');
+      const src = youtubeEmbedUrl(id, withSound) + '&cb=' + Date.now();
+      const iframe = document.createElement('iframe');
+      iframe.id = 'ytPlayer';
+      iframe.title = 'PetZone ambient video';
+      iframe.allow =
+        'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      iframe.setAttribute('allowfullscreen', '');
+      iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+      iframe.src = src;
+      ytWrap.appendChild(iframe);
       loadYouTubeApi();
-      // Bind after iframe is in DOM (API may already be ready)
       setTimeout(bindYtPlayer, 400);
       setTimeout(bindYtPlayer, 1200);
     }
@@ -659,19 +666,19 @@
       return { kind: 'youtube', id: DEFAULT_YOUTUBE_ID, key: 'yt:' + DEFAULT_YOUTUBE_ID };
     }
 
-    function applyVideoSource(serverUrl) {
+    function applyVideoSource(serverUrl, force) {
       const pane = document.getElementById('videoPane');
       const video = document.getElementById('displayVideo');
       if (!pane || !video) return;
       const source = resolveVideoSource(serverUrl);
-      if (source.key === activeVideoKey) return;
+      if (!force && source.key === activeVideoKey) return;
       activeVideoKey = source.key;
       try { localStorage.setItem('qms_display_video', source.kind === 'youtube' ? source.id : source.src); } catch (_) { /* ignore */ }
 
       if (source.kind === 'youtube') {
         mountYouTube(source.id, soundEnabled && ambientWanted && !ambientDucked);
         video.removeAttribute('src');
-        video.load();
+        try { video.load(); } catch (_) { /* ignore */ }
         return;
       }
 
@@ -710,7 +717,14 @@
     }
 
     function setupVideo() {
-      applyVideoSource(null);
+      // Prefer server URL from first status poll; keep local fallback only if poll is slow
+      const cached = (() => {
+        try { return localStorage.getItem('qms_display_video'); } catch (_) { return null; }
+      })();
+      applyVideoSource(cached || null);
+      setTimeout(function () {
+        if (!activeVideoKey) applyVideoSource(null);
+      }, 4000);
     }
 
     function getAudioContext() {
@@ -954,7 +968,10 @@
 
     async function refresh() {
       try {
-        const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/status`);
+        const res = await fetch(
+          `/api/queue/public/${orgSlug}/${branchSlug}/status?_=${Date.now()}`,
+          { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }
+        );
         const json = await res.json();
         if (!json.success) return;
 
@@ -988,7 +1005,8 @@
     updateSoundButton();
     setInterval(updateClock, 1000);
     refresh();
-    setInterval(refresh, 2500);
+    // Poll often enough that Admin video URL changes appear without a manual refresh
+    setInterval(refresh, 2000);
   </script>
 </body>
 </html>
