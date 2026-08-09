@@ -400,18 +400,23 @@
     const announcementFifo = [];
     let fifoRunning = false;
 
-    // Default: long cats & dogs YouTube ambient (with sound after Enable Sound).
-    // Override: ?youtube=VIDEO_ID or ?video=mp4Url
+    // Dynamic ambient video: Admin → Branches → paste YouTube/MP4 URL.
+    // Override for one screen: ?youtube=VIDEO_ID or ?video=mp4Url
     // Token call/recall ducks ambient audio so announcements stay clear.
     const DEFAULT_YOUTUBE_ID = 'gcUHp8Wm7D0'; // https://www.youtube.com/watch?v=gcUHp8Wm7D0
+    const DEFAULT_VIDEO_URL = 'https://www.youtube.com/watch?v=' + DEFAULT_YOUTUBE_ID;
     const PET_MP4_VIDEOS = [
-      'https://videos.pexels.com/video-files/855029/855029-hd_1920_1080_30fps.mp4', // cute dog
-      'https://videos.pexels.com/video-files/2795407/2795407-uhd_2560_1440_25fps.mp4', // pets / dog
-      'https://videos.pexels.com/video-files/1409899/1409899-uhd_2560_1440_25fps.mp4', // dog outdoors
-      'https://videos.pexels.com/video-files/3195394/3195394-uhd_2560_1440_25fps.mp4', // animal pets
-      'https://videos.pexels.com/video-files/992623/992623-hd_1920_1080_25fps.mp4', // cute pet
+      'https://videos.pexels.com/video-files/855029/855029-hd_1920_1080_30fps.mp4',
+      'https://videos.pexels.com/video-files/2795407/2795407-uhd_2560_1440_25fps.mp4',
+      'https://videos.pexels.com/video-files/1409899/1409899-uhd_2560_1440_25fps.mp4',
+      'https://videos.pexels.com/video-files/3195394/3195394-uhd_2560_1440_25fps.mp4',
+      'https://videos.pexels.com/video-files/992623/992623-hd_1920_1080_25fps.mp4',
       '/assets/display-video.mp4',
     ];
+    let activeVideoKey = null;
+    let mp4CandidatesLive = [];
+    let mp4IndexLive = 0;
+    let mp4ErrorBound = false;
 
     function extractYouTubeId(value) {
       if (!value) return null;
@@ -629,63 +634,74 @@
       pane.classList.remove('yt-mode', 'mp4-mode');
     }
 
-    function setupVideo() {
+    function resolveVideoSource(serverUrl) {
+      const customParam = query.get('youtube') || query.get('video');
+      if (customParam) {
+        const yt = extractYouTubeId(customParam);
+        if (yt) return { kind: 'youtube', id: yt, key: 'yt:' + yt };
+        return { kind: 'mp4', src: customParam, key: 'mp4:' + customParam };
+      }
+      const raw = (serverUrl && String(serverUrl).trim()) || DEFAULT_VIDEO_URL;
+      const yt = extractYouTubeId(raw);
+      if (yt) return { kind: 'youtube', id: yt, key: 'yt:' + yt };
+      if (/^https?:\/\//i.test(raw) || raw.startsWith('/')) {
+        return { kind: 'mp4', src: raw, key: 'mp4:' + raw };
+      }
+      return { kind: 'youtube', id: DEFAULT_YOUTUBE_ID, key: 'yt:' + DEFAULT_YOUTUBE_ID };
+    }
+
+    function applyVideoSource(serverUrl) {
       const pane = document.getElementById('videoPane');
       const video = document.getElementById('displayVideo');
-      const customParam = query.get('youtube') || query.get('video');
-      let stored = null;
-      try {
-        stored = localStorage.getItem('qms_display_video');
-        // Keep / refresh preferred long cats & dogs YouTube reel
-        if (!stored || extractYouTubeId(stored) !== DEFAULT_YOUTUBE_ID) {
-          if (!customParam) {
-            localStorage.setItem('qms_display_video', DEFAULT_YOUTUBE_ID);
-            stored = DEFAULT_YOUTUBE_ID;
-          }
-        }
-      } catch (_) { /* ignore */ }
+      if (!pane || !video) return;
+      const source = resolveVideoSource(serverUrl);
+      if (source.key === activeVideoKey) return;
+      activeVideoKey = source.key;
+      try { localStorage.setItem('qms_display_video', source.kind === 'youtube' ? source.id : source.src); } catch (_) { /* ignore */ }
 
-      const ytFromParam = extractYouTubeId(query.get('youtube') || customParam);
-      const mp4FromParam = customParam && !extractYouTubeId(customParam) ? customParam : null;
-      const ytFromStored = extractYouTubeId(stored);
-      const youtubeId = ytFromParam || (!mp4FromParam ? (ytFromStored || DEFAULT_YOUTUBE_ID) : null);
-
-      // Default / requested YouTube ambient reel
-      if (youtubeId) {
-        mountYouTube(youtubeId, false);
+      if (source.kind === 'youtube') {
+        mountYouTube(source.id, soundEnabled && ambientWanted && !ambientDucked);
         video.removeAttribute('src');
         video.load();
         return;
       }
 
-      // Explicit ?video=mp4Url fallback path
-      const mp4Candidates = [];
-      if (mp4FromParam) mp4Candidates.push(mp4FromParam);
-      PET_MP4_VIDEOS.forEach((src) => mp4Candidates.push(src));
-
+      // MP4 (custom or fallback list)
+      const ytWrap = document.getElementById('ytWrap');
+      if (ytWrap) ytWrap.innerHTML = '';
+      currentYouTubeId = null;
+      ytPlayer = null;
       pane.classList.add('mp4-mode');
-      pane.classList.remove('yt-mode');
-      let index = 0;
+      pane.classList.remove('yt-mode', 'fallback');
+
+      mp4CandidatesLive = [source.src].concat(PET_MP4_VIDEOS.filter((u) => u !== source.src));
+      mp4IndexLive = 0;
       const tryNext = () => {
-        if (index >= mp4Candidates.length) {
+        if (mp4IndexLive >= mp4CandidatesLive.length) {
           showVideoFallback();
           return;
         }
-        const src = mp4Candidates[index++];
+        const src = mp4CandidatesLive[mp4IndexLive++];
         video.src = src;
-        video.muted = true;
-        video.volume = 0;
+        video.muted = !(soundEnabled && ambientWanted && !ambientDucked);
+        video.volume = video.muted ? 0 : 0.55;
+        video.loop = true;
         video.load();
         const playPromise = video.play();
-        if (playPromise && playPromise.catch) {
-          playPromise.catch(() => tryNext());
-        }
+        if (playPromise && playPromise.catch) playPromise.catch(() => tryNext());
       };
-      video.addEventListener('error', () => tryNext());
-      video.addEventListener('loadeddata', () => {
-        pane.classList.remove('fallback');
-      });
+      if (!mp4ErrorBound) {
+        mp4ErrorBound = true;
+        video.addEventListener('error', () => {
+          if (pane.classList.contains('mp4-mode')) tryNext();
+        });
+        video.addEventListener('loadeddata', () => pane.classList.remove('fallback'));
+      }
       tryNext();
+    }
+
+    function setupVideo() {
+      applyVideoSource(null);
     }
 
     function getAudioContext() {
@@ -935,6 +951,7 @@
 
         const d = json.data;
         document.getElementById('brandName').innerHTML = '<em>PetZone</em> Animal Hospital';
+        applyVideoSource(d.display_video_url || null);
 
         announceChanges(d.by_counter || []);
         renderOpdCards(d.by_counter || []);

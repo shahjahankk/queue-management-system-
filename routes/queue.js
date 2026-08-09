@@ -470,6 +470,16 @@ router.get('/public/:orgSlug/:branchSlug/status', async (req, res) => {
 
     const byCounter = await getServingByCounter(branch.id, dateKey);
 
+    await ensureDisplayVideoColumn();
+    let displayVideoUrl = branch.display_video_url || null;
+    try {
+      const vidRows = await executeQuery(
+        `SELECT display_video_url FROM qms_branches WHERE id = ? LIMIT 1`,
+        [branch.id]
+      );
+      displayVideoUrl = vidRows[0]?.display_video_url || null;
+    } catch (_) { /* column may be missing mid-deploy */ }
+
     res.json({
       success: true,
       data: {
@@ -479,6 +489,7 @@ router.get('/public/:orgSlug/:branchSlug/status', async (req, res) => {
         by_counter: byCounter,
         waiting_by_service: waitingByService,
         recently_completed: recentlyCompleted,
+        display_video_url: displayVideoUrl || null,
         updated_at: new Date().toISOString(),
       },
     });
@@ -915,6 +926,7 @@ router.post('/public/:orgSlug/:branchSlug/chat', async (req, res) => {
 
 // ── Screen privacy PIN (OPD counter / Take-a-ticket kiosk) ──
 let screenPinColumnsReady = false;
+let displayVideoColumnReady = false;
 
 async function ensureScreenPinColumns() {
   if (screenPinColumnsReady) return;
@@ -937,6 +949,28 @@ async function ensureScreenPinColumns() {
   } catch (err) {
     // If ALTER fails mid-flight, still try reads (columns may already exist)
     screenPinColumnsReady = true;
+    throw err;
+  }
+}
+
+async function ensureDisplayVideoColumn() {
+  if (displayVideoColumnReady) return;
+  try {
+    const cols = await executeQuery(
+      `SELECT COUNT(*) AS c
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'qms_branches'
+         AND COLUMN_NAME = 'display_video_url'`
+    );
+    if (!Number(cols[0]?.c)) {
+      await executeQuery(
+        `ALTER TABLE qms_branches ADD COLUMN display_video_url VARCHAR(500) DEFAULT NULL`
+      );
+    }
+    displayVideoColumnReady = true;
+  } catch (err) {
+    displayVideoColumnReady = true;
     throw err;
   }
 }

@@ -69,10 +69,11 @@
         <div class="alert" style="margin-bottom:16px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;">
           <strong>Screen privacy:</strong> OPD and Take-a-Ticket stay <em>open</em> until you set a password below.
           Enter a password → click <strong>Set</strong>. Use <strong>Clear</strong> to remove the lock.
+          <br><strong>TV video:</strong> Paste any YouTube or MP4 URL → <strong>Save</strong>. Open display screens update within a few seconds.
         </div>
         <div class="card">
           <table>
-            <thead><tr><th>Branch</th><th>Organization</th><th>Slug</th><th>Screen passwords</th><th>Links</th></tr></thead>
+            <thead><tr><th>Branch</th><th>Organization</th><th>Slug</th><th>Passwords &amp; TV video</th><th>Links</th></tr></thead>
             <tbody id="branchTable"></tbody>
           </table>
         </div>
@@ -265,7 +266,7 @@
             <td><strong>${b.name}</strong></td>
             <td>${b.org_name}</td>
             <td>${b.slug}</td>
-            <td style="min-width:220px;">
+            <td style="min-width:280px;">
               <div style="font-size:12px;margin-bottom:6px;">
                 OPD: ${b.has_counter_pin ? '<span style="color:#15803d;font-weight:700;">Locked</span>' : '<span style="color:#64748b;">Open</span>'}
                 · Ticket: ${b.has_kiosk_pin ? '<span style="color:#15803d;font-weight:700;">Locked</span>' : '<span style="color:#64748b;">Open</span>'}
@@ -280,6 +281,19 @@
                   <input type="password" id="pin-kiosk-${b.id}" placeholder="Ticket password" style="width:120px;padding:4px 8px;font-size:12px;" />
                   <button type="button" class="btn btn-sm btn-primary" data-set-pin="kiosk" data-branch="${b.id}">Set</button>
                   <button type="button" class="btn btn-sm btn-outline" data-clear-pin="kiosk" data-branch="${b.id}">Clear</button>
+                </div>
+                <div style="margin-top:4px;padding-top:6px;border-top:1px solid #e2e8f0;">
+                  <div style="font-size:11px;font-weight:700;color:#0f172a;margin-bottom:4px;">TV Display video</div>
+                  <div style="font-size:11px;color:#64748b;margin-bottom:4px;word-break:break-all;">
+                    ${b.display_video_url ? b.display_video_url : '<em>Default cats &amp; dogs reel</em>'}
+                  </div>
+                  <div style="display:flex;gap:4px;align-items:center;">
+                    <input type="url" id="video-url-${b.id}" placeholder="Paste YouTube or MP4 URL"
+                      value="${(b.display_video_url || '').replace(/"/g, '&quot;')}"
+                      style="flex:1;min-width:160px;padding:4px 8px;font-size:12px;" />
+                    <button type="button" class="btn btn-sm btn-primary" data-set-video="${b.id}">Save</button>
+                    <button type="button" class="btn btn-sm btn-outline" data-clear-video="${b.id}">Clear</button>
+                  </div>
                 </div>
               </div>
             </td>
@@ -322,6 +336,45 @@
               const body = kind === 'counter' ? { counter_pin: '' } : { kiosk_pin: '' };
               await api(`/api/admin/branches/${branchId}`, { method: 'PATCH', body: JSON.stringify(body) });
               showAlert(document.getElementById('adminAlert'), 'Password cleared', 'success');
+              await loadData();
+            } catch (err) {
+              showAlert(document.getElementById('adminAlert'), err.message);
+            }
+          });
+        });
+
+        document.querySelectorAll('[data-set-video]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const branchId = btn.getAttribute('data-set-video');
+            const input = document.getElementById(`video-url-${branchId}`);
+            const url = (input.value || '').trim();
+            if (!url) {
+              showAlert(document.getElementById('adminAlert'), 'Paste a YouTube or MP4 URL first');
+              return;
+            }
+            try {
+              await api(`/api/admin/branches/${branchId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ display_video_url: url }),
+              });
+              showAlert(document.getElementById('adminAlert'), 'Display video saved — TV updates in a few seconds', 'success');
+              await loadData();
+            } catch (err) {
+              showAlert(document.getElementById('adminAlert'), err.message);
+            }
+          });
+        });
+
+        document.querySelectorAll('[data-clear-video]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const branchId = btn.getAttribute('data-clear-video');
+            if (!confirm('Clear custom video? Display will use the default reel.')) return;
+            try {
+              await api(`/api/admin/branches/${branchId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ display_video_url: '' }),
+              });
+              showAlert(document.getElementById('adminAlert'), 'Display video cleared', 'success');
               await loadData();
             } catch (err) {
               showAlert(document.getElementById('adminAlert'), err.message);

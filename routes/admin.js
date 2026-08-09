@@ -173,7 +173,7 @@ router.post('/branches', authMiddleware, requireRole('super_admin', 'org_admin')
 
 router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_admin'), async (req, res) => {
   try {
-    const { name, address, phone, is_active, counter_pin, kiosk_pin } = req.body;
+    const { name, address, phone, is_active, counter_pin, kiosk_pin, display_video_url } = req.body;
     await executeQuery(
       `UPDATE qms_branches SET
         name = COALESCE(?, name),
@@ -197,6 +197,27 @@ router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_ad
       await executeQuery(
         `UPDATE qms_branches SET kiosk_pin = ? WHERE id = ?`,
         [pin || null, req.params.id]
+      );
+    }
+
+    // TV display video: YouTube URL / ID or direct MP4 URL; empty clears to default on screens
+    if (Object.prototype.hasOwnProperty.call(req.body, 'display_video_url')) {
+      const url = display_video_url == null ? '' : String(display_video_url).trim().slice(0, 500);
+      // Lazy-ensure column (cPanel deploys without migrations)
+      try {
+        const cols = await executeQuery(
+          `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'qms_branches' AND COLUMN_NAME = 'display_video_url'`
+        );
+        if (!Number(cols[0]?.c)) {
+          await executeQuery(
+            `ALTER TABLE qms_branches ADD COLUMN display_video_url VARCHAR(500) DEFAULT NULL`
+          );
+        }
+      } catch (_) { /* column may already exist */ }
+      await executeQuery(
+        `UPDATE qms_branches SET display_video_url = ? WHERE id = ?`,
+        [url || null, req.params.id]
       );
     }
 
