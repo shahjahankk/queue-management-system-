@@ -913,4 +913,87 @@ router.post('/public/:orgSlug/:branchSlug/chat', async (req, res) => {
   }
 });
 
+// ── Screen privacy PIN (OPD counter / Take-a-ticket kiosk) ──
+let screenPinColumnsReady = false;
+
+async function ensureScreenPinColumns() {
+  if (screenPinColumnsReady) return;
+  try {
+    const cols = await executeQuery(
+      `SELECT COLUMN_NAME AS name
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'qms_branches'
+         AND COLUMN_NAME IN ('counter_pin', 'kiosk_pin')`
+    );
+    const names = new Set(cols.map((c) => c.name));
+    if (!names.has('counter_pin')) {
+      await executeQuery(`ALTER TABLE qms_branches ADD COLUMN counter_pin VARCHAR(32) DEFAULT NULL`);
+    }
+    if (!names.has('kiosk_pin')) {
+      await executeQuery(`ALTER TABLE qms_branches ADD COLUMN kiosk_pin VARCHAR(32) DEFAULT NULL`);
+    }
+    screenPinColumnsReady = true;
+  } catch (err) {
+    // If ALTER fails mid-flight, still try reads (columns may already exist)
+    screenPinColumnsReady = true;
+    throw err;
+  }
+}
+
+router.get('/public/:orgSlug/:branchSlug/screen-lock', async (req, res) => {
+  try {
+    const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
+    if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
+    await ensureScreenPinColumns();
+    const rows = await executeQuery(
+      `SELECT counter_pin, kiosk_pin FROM qms_branches WHERE id = ? LIMIT 1`,
+      [branch.id]
+    );
+    const row = rows[0] || {};
+    res.json({
+      success: true,
+      data: {
+        counter_required: Boolean(row.counter_pin && String(row.counter_pin).trim()),
+        kiosk_required: Boolean(row.kiosk_pin && String(row.kiosk_pin).trim()),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/public/:orgSlug/:branchSlug/screen-unlock', async (req, res) => {
+  try {
+    const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
+    if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
+    await ensureScreenPinColumns();
+
+    const screen = String(req.body?.screen || '').toLowerCase();
+    const pin = String(req.body?.pin || '').trim();
+    if (screen !== 'counter' && screen !== 'kiosk') {
+      return res.status(400).json({ success: false, message: 'Invalid screen' });
+    }
+    if (!pin) {
+      return res.status(400).json({ success: false, message: 'Password required' });
+    }
+
+    const rows = await executeQuery(
+      `SELECT counter_pin, kiosk_pin FROM qms_branches WHERE id = ? LIMIT 1`,
+      [branch.id]
+    );
+    const row = rows[0] || {};
+    const expected = screen === 'counter' ? row.counter_pin : row.kiosk_pin;
+    if (!expected || !String(expected).trim()) {
+      return res.json({ success: true, data: { unlocked: true, required: false } });
+    }
+    if (String(expected).trim() !== pin) {
+      return res.status(401).json({ success: false, message: 'Incorrect password' });
+    }
+    res.json({ success: true, data: { unlocked: true, required: true } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

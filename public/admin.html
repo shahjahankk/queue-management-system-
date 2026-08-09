@@ -68,7 +68,7 @@
         </div>
         <div class="card">
           <table>
-            <thead><tr><th>Branch</th><th>Organization</th><th>Slug</th><th>Phone</th><th>Links</th></tr></thead>
+            <thead><tr><th>Branch</th><th>Organization</th><th>Slug</th><th>Screen passwords</th><th>Links</th></tr></thead>
             <tbody id="branchTable"></tbody>
           </table>
         </div>
@@ -261,7 +261,24 @@
             <td><strong>${b.name}</strong></td>
             <td>${b.org_name}</td>
             <td>${b.slug}</td>
-            <td>${b.phone || '-'}</td>
+            <td style="min-width:220px;">
+              <div style="font-size:12px;margin-bottom:6px;">
+                OPD: ${b.has_counter_pin ? '<span style="color:#15803d;font-weight:700;">Locked</span>' : '<span style="color:#64748b;">Open</span>'}
+                · Ticket: ${b.has_kiosk_pin ? '<span style="color:#15803d;font-weight:700;">Locked</span>' : '<span style="color:#64748b;">Open</span>'}
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <div style="display:flex;gap:4px;align-items:center;">
+                  <input type="password" id="pin-counter-${b.id}" placeholder="OPD password" style="width:120px;padding:4px 8px;font-size:12px;" />
+                  <button type="button" class="btn btn-sm btn-primary" data-set-pin="counter" data-branch="${b.id}">Set</button>
+                  <button type="button" class="btn btn-sm btn-outline" data-clear-pin="counter" data-branch="${b.id}">Clear</button>
+                </div>
+                <div style="display:flex;gap:4px;align-items:center;">
+                  <input type="password" id="pin-kiosk-${b.id}" placeholder="Ticket password" style="width:120px;padding:4px 8px;font-size:12px;" />
+                  <button type="button" class="btn btn-sm btn-primary" data-set-pin="kiosk" data-branch="${b.id}">Set</button>
+                  <button type="button" class="btn btn-sm btn-outline" data-clear-pin="kiosk" data-branch="${b.id}">Clear</button>
+                </div>
+              </div>
+            </td>
             <td>
               <a href="/kiosk/${b.org_slug}/${b.slug}" class="btn btn-sm btn-pink" target="_blank">Kiosk</a>
               <a href="/display/${b.org_slug}/${b.slug}" class="btn btn-sm btn-outline" target="_blank">Display</a>
@@ -269,6 +286,44 @@
             </td>
           </tr>
         `).join('');
+
+        document.querySelectorAll('[data-set-pin]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const branchId = btn.getAttribute('data-branch');
+            const kind = btn.getAttribute('data-set-pin');
+            const input = document.getElementById(kind === 'counter' ? `pin-counter-${branchId}` : `pin-kiosk-${branchId}`);
+            const pin = (input.value || '').trim();
+            if (!pin) {
+              showAlert(document.getElementById('adminAlert'), 'Enter a password first');
+              return;
+            }
+            try {
+              const body = kind === 'counter' ? { counter_pin: pin } : { kiosk_pin: pin };
+              await api(`/api/admin/branches/${branchId}`, { method: 'PATCH', body: JSON.stringify(body) });
+              input.value = '';
+              showAlert(document.getElementById('adminAlert'), `${kind === 'counter' ? 'OPD' : 'Ticket'} password saved`, 'success');
+              await loadData();
+            } catch (err) {
+              showAlert(document.getElementById('adminAlert'), err.message);
+            }
+          });
+        });
+
+        document.querySelectorAll('[data-clear-pin]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const branchId = btn.getAttribute('data-branch');
+            const kind = btn.getAttribute('data-clear-pin');
+            if (!confirm(`Remove ${kind === 'counter' ? 'OPD' : 'Ticket'} password? Screen will be open.`)) return;
+            try {
+              const body = kind === 'counter' ? { counter_pin: '' } : { kiosk_pin: '' };
+              await api(`/api/admin/branches/${branchId}`, { method: 'PATCH', body: JSON.stringify(body) });
+              showAlert(document.getElementById('adminAlert'), 'Password cleared', 'success');
+              await loadData();
+            } catch (err) {
+              showAlert(document.getElementById('adminAlert'), err.message);
+            }
+          });
+        });
 
         document.getElementById('linksGrid').innerHTML = branches.map(b => `
           <div class="card">

@@ -118,7 +118,15 @@ router.get('/branches', authMiddleware, async (req, res) => {
 
     query += ' ORDER BY o.name, b.name';
     const branches = await executeQuery(query, params);
-    res.json({ success: true, data: branches });
+    const safe = branches.map((b) => {
+      const { counter_pin, kiosk_pin, ...rest } = b;
+      return {
+        ...rest,
+        has_counter_pin: Boolean(counter_pin && String(counter_pin).trim()),
+        has_kiosk_pin: Boolean(kiosk_pin && String(kiosk_pin).trim()),
+      };
+    });
+    res.json({ success: true, data: safe });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -165,7 +173,7 @@ router.post('/branches', authMiddleware, requireRole('super_admin', 'org_admin')
 
 router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_admin'), async (req, res) => {
   try {
-    const { name, address, phone, is_active } = req.body;
+    const { name, address, phone, is_active, counter_pin, kiosk_pin } = req.body;
     await executeQuery(
       `UPDATE qms_branches SET
         name = COALESCE(?, name),
@@ -175,6 +183,23 @@ router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_ad
       WHERE id = ?`,
       [name, address, phone, is_active, req.params.id]
     );
+
+    // Screen PINs: string sets/updates; empty string clears; omit leaves unchanged
+    if (Object.prototype.hasOwnProperty.call(req.body, 'counter_pin')) {
+      const pin = counter_pin == null ? '' : String(counter_pin).trim().slice(0, 32);
+      await executeQuery(
+        `UPDATE qms_branches SET counter_pin = ? WHERE id = ?`,
+        [pin || null, req.params.id]
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'kiosk_pin')) {
+      const pin = kiosk_pin == null ? '' : String(kiosk_pin).trim().slice(0, 32);
+      await executeQuery(
+        `UPDATE qms_branches SET kiosk_pin = ? WHERE id = ?`,
+        [pin || null, req.params.id]
+      );
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

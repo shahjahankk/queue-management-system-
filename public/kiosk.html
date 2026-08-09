@@ -157,6 +157,7 @@
 
   <script src="/js/app.js?v=20260809d"></script>
   <script src="/js/thermalPrinter.js?v=20260810a"></script>
+  <script src="/js/screenLock.js"></script>
   <script>
     const parts = location.pathname.split('/').filter(Boolean);
     const orgSlug = parts[1] || 'petzone';
@@ -550,7 +551,9 @@
     });
 
     refreshPrinterStatus();
-    loadBranch().catch(err => showAlert(document.getElementById('alert'), err.message));
+    QmsScreenLock.requireScreenUnlock('kiosk', orgSlug, branchSlug)
+      .then(() => loadBranch())
+      .catch(err => showAlert(document.getElementById('alert'), err.message));
   </script>
 </body>
 </html>
