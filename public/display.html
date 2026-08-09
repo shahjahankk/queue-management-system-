@@ -3,375 +3,359 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PetZone Hospital - Queue Display</title>
+  <title>PetZone Hospital — Live Queue</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800;900&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+    :root {
+      --teal: #0d9488;
+      --rail-w: clamp(240px, 15vw, 320px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       height: 100%;
       overflow: hidden;
-      font-family: 'Manrope', 'Segoe UI', system-ui, sans-serif;
-    }
-
-    body {
-      background: #07111f;
+      font-family: 'Manrope', system-ui, sans-serif;
+      background: #020617;
       color: #fff;
-      display: flex;
-      flex-direction: column;
     }
 
-    .tv-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 24px;
-      background: linear-gradient(180deg, rgba(7,17,31,0.96), rgba(7,17,31,0.82));
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      flex-shrink: 0;
-      z-index: 5;
-    }
-
-    .tv-header img { height: 44px; filter: brightness(0) invert(1); }
-    .tv-brand { display: flex; align-items: center; gap: 14px; }
-    .sound-toggle {
-      border: 1px solid rgba(255,255,255,0.55);
-      border-radius: 999px;
-      padding: 8px 14px;
-      background: rgba(255,255,255,0.08);
-      color: #fff;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    .sound-toggle.enabled { background: #15803d; border-color: #4ade80; }
-
-    .tv-header-center { text-align: center; }
-    .tv-header-center h1 {
-      font-family: 'Sora', sans-serif;
-      font-size: clamp(20px, 2.2vw, 32px);
-      font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-    .tv-header-center p {
-      font-size: 13px;
-      opacity: 0.55;
-      margin-top: 2px;
-    }
-
-    .tv-clock {
-      font-size: clamp(22px, 2.4vw, 34px);
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: 0.04em;
-      min-width: 120px;
-      text-align: right;
-      opacity: 0.92;
-    }
-
-    .tv-stage {
-      flex: 1;
-      min-height: 0;
-      display: grid;
-      grid-template-columns: 1fr 15%;
-      gap: 0;
-    }
-
-    .video-pane {
+    .stage {
       position: relative;
+      width: 100vw;
+      height: 100vh;
       overflow: hidden;
-      background: #0b1a2e;
-      min-height: 0;
     }
 
-    .video-pane video {
+    .video-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse at 30% 40%, rgba(13, 148, 136, 0.35), transparent 55%),
+        radial-gradient(ellipse at 80% 70%, rgba(14, 116, 144, 0.3), transparent 50%),
+        linear-gradient(145deg, #0c4a6e, #134e4a 50%, #0f172a);
+    }
+    .video-layer video {
       width: 100%;
       height: 100%;
       object-fit: cover;
       display: block;
-      background: #0b1a2e;
     }
-
-    .video-fallback {
+    .video-layer.fallback video { display: none; }
+    .video-layer::after {
+      content: '';
       position: absolute;
       inset: 0;
-      display: none;
       background:
-        radial-gradient(ellipse at 20% 20%, rgba(56,189,248,0.22), transparent 45%),
-        radial-gradient(ellipse at 80% 30%, rgba(244,114,182,0.18), transparent 40%),
-        radial-gradient(ellipse at 50% 90%, rgba(52,211,153,0.16), transparent 45%),
-        linear-gradient(145deg, #0a1628 0%, #12305f 50%, #1e3a8a 100%);
-      animation: ambientShift 18s ease-in-out infinite alternate;
-    }
-
-    .video-pane.fallback .video-fallback { display: block; }
-    .video-pane.fallback video { display: none; }
-
-    @keyframes ambientShift {
-      from { filter: hue-rotate(0deg) saturate(1); transform: scale(1); }
-      to { filter: hue-rotate(18deg) saturate(1.15); transform: scale(1.04); }
-    }
-
-    .video-overlay {
-      position: absolute;
-      inset: 0;
+        linear-gradient(90deg, rgba(2,6,23,0.18) 0%, rgba(2,6,23,0.08) 55%, rgba(2,6,23,0.45) 100%),
+        linear-gradient(180deg, rgba(2,6,23,0.55) 0%, transparent 22%, transparent 78%, rgba(2,6,23,0.4) 100%);
       pointer-events: none;
-      background:
-        linear-gradient(90deg, rgba(7,17,31,0.15), transparent 28%, transparent 72%, rgba(7,17,31,0.55)),
-        linear-gradient(180deg, rgba(7,17,31,0.25), transparent 30%, transparent 70%, rgba(7,17,31,0.35));
     }
-
-    .video-caption {
+    .ambient {
+      display: none;
       position: absolute;
-      left: 28px;
-      bottom: 24px;
-      z-index: 2;
-      max-width: 55%;
-      text-shadow: 0 8px 30px rgba(0,0,0,0.55);
-    }
-
-    .video-caption strong {
-      display: block;
-      font-family: 'Sora', sans-serif;
-      font-size: clamp(22px, 2.6vw, 40px);
-      font-weight: 800;
-      margin-bottom: 6px;
-    }
-
-    .video-caption span {
-      font-size: clamp(13px, 1.2vw, 18px);
-      opacity: 0.8;
-      font-weight: 600;
-    }
-
-    .queue-pane {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      background: linear-gradient(180deg, #0d1b2e 0%, #102445 55%, #0c274f 100%);
-      border-left: 1px solid rgba(255,255,255,0.1);
-      padding: 10px 8px 10px;
-    }
-
-    .queue-pane-title {
-      font-family: 'Sora', sans-serif;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      opacity: 0.5;
-      margin-bottom: 8px;
-      flex-shrink: 0;
-      text-align: center;
-    }
-
-    #nowServing {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      min-height: 0;
+      inset: 0;
       overflow: hidden;
     }
+    .video-layer.fallback .ambient { display: block; }
+    .paw {
+      position: absolute;
+      font-size: clamp(2rem, 5vw, 4.5rem);
+      opacity: 0.12;
+      animation: float 14s ease-in-out infinite;
+    }
+    .paw:nth-child(1) { left: 8%; top: 18%; }
+    .paw:nth-child(2) { left: 28%; top: 62%; animation-delay: -3s; }
+    .paw:nth-child(3) { left: 48%; top: 28%; animation-delay: -6s; }
+    .paw:nth-child(4) { left: 68%; top: 55%; animation-delay: -9s; }
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(-8deg); }
+      50% { transform: translateY(-28px) rotate(8deg); }
+    }
 
+    .topbar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1.25rem;
+      background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08));
+      backdrop-filter: blur(18px) saturate(1.35);
+      -webkit-backdrop-filter: blur(18px) saturate(1.35);
+      border-bottom: 1px solid rgba(255,255,255,0.28);
+      box-shadow: 0 10px 40px rgba(2, 6, 23, 0.25);
+    }
+    .brand-block {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      min-width: 0;
+    }
+    .logo-mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      object-fit: contain;
+      background: rgba(255,255,255,0.92);
+      padding: 5px;
+      box-shadow: 0 8px 24px rgba(2,6,23,0.25);
+      flex-shrink: 0;
+    }
+    .brand-copy { min-width: 0; }
+    .eyebrow {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #99f6e4;
+      text-shadow: 0 1px 8px rgba(2,6,23,0.45);
+    }
+    .brand-name {
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(1.75rem, 3.6vw, 3rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+      color: #fff;
+      text-shadow: 0 2px 16px rgba(2,6,23,0.55);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+    .sound-btn {
+      border: 1px solid rgba(255,255,255,0.35);
+      background: rgba(15, 23, 42, 0.35);
+      color: #fff;
+      border-radius: 999px;
+      padding: 0.45rem 0.9rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      font-family: inherit;
+    }
+    .sound-btn.enabled {
+      background: rgba(13, 148, 136, 0.55);
+      border-color: rgba(153, 246, 228, 0.55);
+    }
+    .clock-block {
+      text-align: right;
+      padding: 0.35rem 0.75rem;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.28);
+      border: 1px solid rgba(255,255,255,0.22);
+      backdrop-filter: blur(8px);
+    }
+    .clock {
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(1.1rem, 2vw, 1.55rem);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+      line-height: 1.1;
+    }
+    .date-line {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: rgba(255,255,255,0.75);
+      margin-top: 0.1rem;
+    }
+
+    .glass-rail {
+      position: absolute;
+      top: calc(72px + 0.75rem);
+      right: 0.85rem;
+      bottom: 0.85rem;
+      width: var(--rail-w);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      padding: 0.85rem;
+      border-radius: 22px;
+      background: linear-gradient(165deg, rgba(255,255,255,0.28), rgba(255,255,255,0.1));
+      backdrop-filter: blur(22px) saturate(1.4);
+      -webkit-backdrop-filter: blur(22px) saturate(1.4);
+      border: 1px solid rgba(255,255,255,0.38);
+      box-shadow:
+        0 20px 50px rgba(2, 6, 23, 0.35),
+        inset 0 1px 0 rgba(255,255,255,0.45);
+    }
+    .rail-head {
+      text-align: center;
+      padding-bottom: 0.55rem;
+      border-bottom: 1px solid rgba(255,255,255,0.22);
+    }
+    .rail-kicker {
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #99f6e4;
+    }
+    .rail-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 800;
+      margin-top: 0.15rem;
+      text-shadow: 0 2px 10px rgba(2,6,23,0.35);
+    }
+
+    .now-serving {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      overflow: hidden;
+    }
     .opd-card {
       flex: 1;
       min-height: 0;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 12px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 6px 4px;
-      position: relative;
-      overflow: hidden;
-      transition: border-color 0.3s, box-shadow 0.3s, background 0.3s, transform 0.3s;
-    }
-
-    .opd-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 3px;
-      background: rgba(255,255,255,0.14);
-    }
-
-    .opd-card.active {
-      background: rgba(255,255,255,0.11);
-      border-color: #ffb6c1;
-      box-shadow: 0 0 36px rgba(255,182,193,0.18);
-    }
-
-    .opd-card.active::before {
-      background: linear-gradient(90deg, #ffb6c1, #f472b6);
-    }
-
-    .opd-card.flash { animation: cardFlash 1.2s ease; }
-
-    @keyframes cardFlash {
-      0% { transform: scale(1); }
-      25% { transform: scale(1.03); box-shadow: 0 0 50px rgba(255,255,255,0.35); }
-      100% { transform: scale(1); }
-    }
-
-    .opd-room {
-      font-size: clamp(10px, 0.85vw, 13px);
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      opacity: 0.7;
-      margin-bottom: 2px;
       text-align: center;
+      padding: 0.55rem 0.45rem;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.22);
+      transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
+    }
+    .opd-card.active {
+      background: linear-gradient(160deg, rgba(13,148,136,0.55), rgba(15,23,42,0.35));
+      border-color: rgba(153, 246, 228, 0.55);
+      box-shadow: 0 10px 28px rgba(13, 148, 136, 0.28);
+    }
+    .opd-card.idle { opacity: 0.72; }
+    .opd-card.flash { animation: pulseFlash 1.1s ease-in-out 3; }
+    @keyframes pulseFlash {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.0); }
+      50% { box-shadow: 0 0 0 10px rgba(45, 212, 191, 0.25); }
+    }
+    .opd-room {
+      font-size: clamp(0.72rem, 1.1vw, 0.95rem);
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #ccfbf1;
       line-height: 1.15;
     }
-
-    .opd-card.active .opd-room { opacity: 1; color: #ffb6c1; }
-
     .opd-number {
-      font-family: 'Sora', sans-serif;
-      font-size: clamp(28px, 3.2vw, 48px);
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(2.4rem, 5.5vw, 4.2rem);
       font-weight: 800;
       line-height: 1;
-      color: #ffb6c1;
-      text-shadow: 0 4px 20px rgba(255,182,193,0.4);
+      margin: 0.2rem 0;
+      letter-spacing: -0.03em;
+      text-shadow: 0 4px 18px rgba(2,6,23,0.45);
     }
-
-    .opd-card.idle .opd-number {
-      color: rgba(255,255,255,0.18);
-      text-shadow: none;
-      font-size: clamp(24px, 2.6vw, 36px);
-    }
-
     .opd-hint {
-      margin-top: 4px;
-      font-size: clamp(9px, 0.75vw, 11px);
-      font-weight: 600;
-      opacity: 0.5;
-      text-align: center;
-      padding: 0 4px;
-      line-height: 1.2;
-    }
-
-    .opd-card.active .opd-hint { opacity: 0.9; }
-    .opd-card.active .opd-hint.serving { color: #86efac; }
-
-    .tv-footer {
-      flex-shrink: 0;
-      margin-top: 8px;
-      background: rgba(0,0,0,0.28);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 10px;
-      padding: 8px 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .tv-footer-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-    }
-
-    .tv-footer-label {
-      font-size: 9px;
+      font-size: 0.7rem;
       font-weight: 700;
+      color: rgba(255,255,255,0.78);
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      opacity: 0.45;
+      letter-spacing: 0.06em;
     }
+    .opd-hint.serving { color: #fde68a; }
 
-    .tv-footer-waiting {
-      font-size: clamp(11px, 0.9vw, 13px);
-      font-weight: 600;
-      text-align: right;
+    .waiting-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.45rem;
+      padding-top: 0.45rem;
+      border-top: 1px solid rgba(255,255,255,0.2);
     }
-
-    .tv-footer-waiting span { opacity: 0.5; font-weight: 500; }
-
-    .tv-footer-next-num {
-      font-family: 'Sora', sans-serif;
-      font-size: clamp(18px, 2vw, 28px);
+    .wait-chip {
+      text-align: center;
+      padding: 0.45rem 0.3rem;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.28);
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    .wait-label {
+      font-size: 0.58rem;
       font-weight: 800;
-      color: #ffb6c1;
-      line-height: 1;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.7);
+    }
+    .wait-value {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.35rem;
+      font-weight: 800;
+      line-height: 1.15;
+      margin-top: 0.1rem;
     }
 
-    .tv-footer-clear {
-      font-size: 11px;
-      opacity: 0.42;
-      font-style: italic;
-    }
-
-    @media (max-width: 900px), (orientation: portrait) {
-      .tv-stage {
-        grid-template-columns: 1fr;
-        grid-template-rows: 70% 30%;
-      }
-      .queue-pane { border-left: 0; border-top: 1px solid rgba(255,255,255,0.1); }
-      #nowServing { flex-direction: row; }
-      .opd-card { min-width: 0; }
-      .video-caption { max-width: 80%; }
+    @media (max-width: 900px) {
+      :root { --rail-w: min(42vw, 280px); }
+      .sound-btn { display: none; }
     }
   </style>
 </head>
 <body>
-  <header class="tv-header">
-    <div class="tv-brand">
-      <img src="/assets/petzonelogo.png" alt="PetZone Hospital" onerror="this.style.display='none'">
-      <button type="button" id="soundToggle" class="sound-toggle">🔇 Enable Sound</button>
-    </div>
-    <div class="tv-header-center">
-      <h1 id="brandName">PetZone Hospital</h1>
-      <p id="branchName"></p>
-    </div>
-    <div class="tv-clock" id="clock">--:--:--</div>
-  </header>
-
-  <section class="tv-stage">
-    <div class="video-pane" id="videoPane">
-      <video
-        id="displayVideo"
-        autoplay
-        muted
-        loop
-        playsinline
-        preload="auto"
-      ></video>
-      <div class="video-fallback" aria-hidden="true"></div>
-      <div class="video-overlay"></div>
-      <div class="video-caption">
-        <strong>Caring for every pet</strong>
-        <span>Relax while we call your token</span>
+  <div class="stage">
+    <div class="video-layer" id="videoPane">
+      <video id="displayVideo" autoplay muted loop playsinline preload="auto"></video>
+      <div class="ambient" aria-hidden="true">
+        <span class="paw">🐾</span>
+        <span class="paw">🐕</span>
+        <span class="paw">🐈</span>
+        <span class="paw">🐾</span>
       </div>
     </div>
 
-    <aside class="queue-pane">
-      <div class="queue-pane-title">Now Serving</div>
-      <div id="nowServing">
-        <div class="opd-card idle">
-          <div class="opd-room">Loading</div>
-          <div class="opd-number">—</div>
+    <header class="topbar">
+      <div class="brand-block">
+        <img class="logo-mark" src="/assets/petzonelogo.svg" alt="PetZone Hospital" onerror="this.style.display='none'">
+        <div class="brand-copy">
+          <div class="eyebrow">Premier Pet Care</div>
+          <div class="brand-name" id="brandName">PetZone Hospital</div>
         </div>
       </div>
-      <footer class="tv-footer">
-        <div class="tv-footer-row">
-          <div class="tv-footer-label">Waiting</div>
-          <div id="waitingInfo" class="tv-footer-waiting">—</div>
+      <div class="top-actions">
+        <button class="sound-btn" id="soundToggle" type="button">🔇 Enable Sound</button>
+        <div class="clock-block">
+          <div class="clock" id="clock">--:--:--</div>
+          <div class="date-line" id="dateLine"></div>
         </div>
-        <div class="tv-footer-row">
-          <div class="tv-footer-label">Up Next</div>
-          <div class="tv-footer-next-num" id="nextNum">—</div>
+      </div>
+    </header>
+
+    <aside class="glass-rail" aria-label="Now serving">
+      <div class="rail-head">
+        <div class="rail-kicker">Live queue</div>
+        <div class="rail-title">Now Serving</div>
+      </div>
+      <div class="now-serving" id="nowServing"></div>
+      <div class="waiting-bar">
+        <div class="wait-chip">
+          <div class="wait-label">Waiting</div>
+          <div class="wait-value" id="waitingInfo"><strong>—</strong></div>
         </div>
-      </footer>
+        <div class="wait-chip">
+          <div class="wait-label">Next</div>
+          <div class="wait-value" id="nextNum">—</div>
+        </div>
+      </div>
     </aside>
-  </section>
+  </div>
 
   <script>
     const parts = location.pathname.split('/').filter(Boolean);
@@ -388,14 +372,17 @@
 
     // Video: ?video=URL  OR  localStorage qms_display_video  OR  /assets/display-video.mp4
     // Drop your clinic video at public/assets/display-video.mp4 for offline TV use.
-    const DEFAULT_REMOTE_VIDEO =
-      'https://videos.pexels.com/video-files/3196257/3196257-uhd_2560_1440_25fps.mp4';
+    const FALLBACK_VIDEOS = [
+      'https://videos.pexels.com/video-files/3196257/3196257-uhd_2560_1440_25fps.mp4',
+      'https://videos.pexels.com/video-files/855029/855029-hd_1920_1080_30fps.mp4',
+      'https://videos.pexels.com/video-files/3045163/3045163-uhd_2560_1440_25fps.mp4',
+      'https://videos.pexels.com/video-files/7989669/7989669-uhd_2560_1440_25fps.mp4',
+    ];
     const videoCandidates = [
       query.get('video'),
       localStorage.getItem('qms_display_video'),
       '/assets/display-video.mp4',
-      DEFAULT_REMOTE_VIDEO,
-    ].filter(Boolean);
+    ].concat(FALLBACK_VIDEOS).filter(Boolean);
 
     function displayNum(code) {
       if (!code) return null;
@@ -405,9 +392,16 @@
     }
 
     function updateClock() {
-      document.getElementById('clock').textContent = new Date().toLocaleTimeString([], {
+      const now = new Date();
+      document.getElementById('clock').textContent = now.toLocaleTimeString([], {
         hour: '2-digit', minute: '2-digit', second: '2-digit',
       });
+      const dateEl = document.getElementById('dateLine');
+      if (dateEl) {
+        dateEl.textContent = now.toLocaleDateString([], {
+          weekday: 'short', month: 'short', day: 'numeric',
+        });
+      }
     }
 
     function showVideoFallback() {
@@ -677,7 +671,6 @@
 
         const d = json.data;
         document.getElementById('brandName').textContent = 'PetZone Hospital';
-        document.getElementById('branchName').textContent = d.branch.name || '';
 
         announceChanges(d.by_counter || []);
         renderOpdCards(d.by_counter || []);
@@ -691,10 +684,10 @@
         const nextEl = document.getElementById('nextNum');
 
         if (totalWaiting > 0) {
-          waitingEl.innerHTML = `<strong>${totalWaiting}</strong> <span>in queue</span>`;
+          waitingEl.innerHTML = '<strong>' + totalWaiting + '</strong>';
           nextEl.textContent = nextNum || '—';
         } else {
-          waitingEl.innerHTML = '<span class="tv-footer-clear">Queue is clear</span>';
+          waitingEl.innerHTML = '<strong style="opacity:.55;font-size:.9rem">Clear</strong>';
           nextEl.textContent = '—';
         }
       } catch (_) { /* silent */ }
