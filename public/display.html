@@ -490,10 +490,27 @@
       };
     }
 
+    function applyYtSoundState(withSound) {
+      if (withSound) {
+        ytCommand('unMute');
+        ytCommand('setVolume', [AMBIENT_YT_VOLUME]);
+        ytCommand('playVideo');
+      } else {
+        ytCommand('mute');
+        ytCommand('setVolume', [0]);
+      }
+    }
+
     function bindYtPlayer() {
       if (!currentYouTubeId || !(window.YT && window.YT.Player)) return;
       const el = document.getElementById('ytPlayer');
       if (!el) return;
+      // Keep existing binding so Enable Sound unlock survives video switches
+      if (ytPlayer && typeof ytPlayer.getIframe === 'function') {
+        try {
+          if (ytPlayer.getIframe() === el) return;
+        } catch (_) { /* rebind */ }
+      }
       try {
         ytPlayer = new YT.Player('ytPlayer', {
           events: {
@@ -504,6 +521,12 @@
                   if (ytPlayer.setVolume) ytPlayer.setVolume(AMBIENT_YT_VOLUME);
                   if (ytPlayer.playVideo) ytPlayer.playVideo();
                 } catch (_) { /* ignore */ }
+              }
+            },
+            onStateChange: function (e) {
+              // Keep single-video ambient looping after loadVideoById
+              if (e.data === window.YT.PlayerState.ENDED && ytPlayer && ytPlayer.playVideo) {
+                try { ytPlayer.playVideo(); } catch (_) { /* ignore */ }
               }
             },
           },
@@ -517,7 +540,6 @@
       const pane = document.getElementById('videoPane');
       if (!ytWrap || !pane) return;
       ytPlayer = null;
-      // Hard teardown so TVs swap videos without a full page refresh
       ytWrap.innerHTML = '';
       pane.classList.add('yt-mode');
       pane.classList.remove('mp4-mode', 'fallback');
@@ -534,6 +556,45 @@
       loadYouTubeApi();
       setTimeout(bindYtPlayer, 400);
       setTimeout(bindYtPlayer, 1200);
+    }
+
+    /**
+     * Swap YouTube video without destroying the iframe when possible.
+     * Remounting a new iframe drops the browser's "user unlocked audio" flag,
+     * which forced staff to toggle Enable Sound again.
+     */
+    function switchYouTubeVideo(id, withSound) {
+      const pane = document.getElementById('videoPane');
+      const existing = document.getElementById('ytPlayer');
+      const canReuse = !!(pane && pane.classList.contains('yt-mode') && existing);
+
+      if (canReuse) {
+        currentYouTubeId = id;
+        let swapped = false;
+        try {
+          if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+            ytPlayer.loadVideoById(id);
+            swapped = true;
+          }
+        } catch (_) { swapped = false; }
+
+        if (!swapped) {
+          // postMessage fallback before YT.Player is bound
+          ytCommand('loadVideoById', [id]);
+          swapped = true;
+        }
+
+        if (swapped) {
+          applyYtSoundState(withSound);
+          setTimeout(function () { applyYtSoundState(withSound); }, 400);
+          setTimeout(function () { applyYtSoundState(withSound); }, 1200);
+          loadYouTubeApi();
+          setTimeout(bindYtPlayer, 300);
+          return;
+        }
+      }
+
+      mountYouTube(id, withSound);
     }
 
     function ytCommand(func, args) {
@@ -676,7 +737,8 @@
       try { localStorage.setItem('qms_display_video', source.kind === 'youtube' ? source.id : source.src); } catch (_) { /* ignore */ }
 
       if (source.kind === 'youtube') {
-        mountYouTube(source.id, soundEnabled && ambientWanted && !ambientDucked);
+        const wantSound = !!(soundEnabled && ambientWanted && !ambientDucked);
+        switchYouTubeVideo(source.id, wantSound);
         video.removeAttribute('src');
         try { video.load(); } catch (_) { /* ignore */ }
         return;
