@@ -35,6 +35,19 @@
     }
 
     .tv-header img { height: 52px; filter: brightness(0) invert(1); }
+    .tv-brand { display: flex; align-items: center; gap: 16px; }
+    .sound-toggle {
+      border: 1px solid rgba(255,255,255,0.65);
+      border-radius: 10px;
+      padding: 9px 14px;
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .sound-toggle.enabled { background: #15803d; border-color: #4ade80; }
 
     .tv-header-center { text-align: center; }
     .tv-header-center h1 {
@@ -234,7 +247,10 @@
 </head>
 <body>
   <header class="tv-header">
-    <img src="/assets/petzonelogo.png" alt="PetZone" onerror="this.style.display='none'">
+    <div class="tv-brand">
+      <img src="/assets/petzonelogo.png" alt="PetZone" onerror="this.style.display='none'">
+      <button type="button" id="soundToggle" class="sound-toggle">🔇 Enable Sound</button>
+    </div>
     <div class="tv-header-center">
       <h1 id="branchName">PetZone Clinic</h1>
       <p id="orgName"></p>
@@ -268,6 +284,9 @@
     const orgSlug = parts[1] || 'petzone';
     const branchSlug = parts[2] || 'main';
     const prevServing = new Map();
+    const announcementState = new Map();
+    let announcementsInitialized = false;
+    let soundEnabled = localStorage.getItem('qms_display_sound') === 'on';
 
     function displayNum(code) {
       if (!code) return null;
@@ -281,6 +300,85 @@
         hour: '2-digit', minute: '2-digit', second: '2-digit',
       });
     }
+
+    function playChime() {
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        const context = new AudioContextClass();
+        const gain = context.createGain();
+        gain.connect(context.destination);
+        gain.gain.setValueAtTime(0.0001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.65);
+        [660, 880].forEach((frequency, index) => {
+          const oscillator = context.createOscillator();
+          oscillator.frequency.value = frequency;
+          oscillator.connect(gain);
+          oscillator.start(context.currentTime + index * 0.18);
+          oscillator.stop(context.currentTime + 0.35 + index * 0.18);
+        });
+        setTimeout(() => context.close().catch(() => {}), 900);
+      } catch (_) { /* speech may still be available */ }
+    }
+
+    function speakAnnouncement(row, isRecall) {
+      if (!soundEnabled || !row.ticket_code) return;
+      playChime();
+      if (!('speechSynthesis' in window)) return;
+      const number = displayNum(row.ticket_code) || row.ticket_code;
+      const counter = row.counter_label || row.counter_name || 'the counter';
+      const prefix = isRecall ? 'Recall. ' : '';
+      const utterance = new SpeechSynthesisUtterance(
+        `${prefix}Token number ${number}, please proceed to ${counter}.`
+      );
+      utterance.rate = 0.88;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function announceChanges(rows) {
+      if (!announcementsInitialized) {
+        rows.forEach((row) => {
+          announcementState.set(String(row.counter_id), {
+            code: row.ticket_code || null,
+            signature: `${row.ticket_code || ''}|${row.called_at || ''}`,
+          });
+        });
+        announcementsInitialized = true;
+        return;
+      }
+      rows.forEach((row) => {
+        const key = String(row.counter_id);
+        const previous = announcementState.get(key);
+        const signature = `${row.ticket_code || ''}|${row.called_at || ''}`;
+        if (row.ticket_code && previous && previous.signature !== signature) {
+          speakAnnouncement(row, previous.code === row.ticket_code);
+        }
+        announcementState.set(key, { code: row.ticket_code || null, signature });
+      });
+    }
+
+    function updateSoundButton() {
+      const button = document.getElementById('soundToggle');
+      button.textContent = soundEnabled ? '🔊 Sound On' : '🔇 Enable Sound';
+      button.classList.toggle('enabled', soundEnabled);
+    }
+
+    document.getElementById('soundToggle').addEventListener('click', () => {
+      soundEnabled = !soundEnabled;
+      localStorage.setItem('qms_display_sound', soundEnabled ? 'on' : 'off');
+      updateSoundButton();
+      if (soundEnabled) {
+        playChime();
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance('Queue announcements enabled.'));
+        }
+      } else if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    });
 
     function renderOpdCards(byCounter) {
       const el = document.getElementById('nowServing');
@@ -329,6 +427,7 @@
         document.getElementById('branchName').textContent = d.branch.name;
         document.getElementById('orgName').textContent = d.branch.org_name || '';
 
+        announceChanges(d.by_counter || []);
         renderOpdCards(d.by_counter || []);
 
         const waiting = d.waiting_by_service || [];
@@ -350,6 +449,7 @@
     }
 
     updateClock();
+    updateSoundButton();
     setInterval(updateClock, 1000);
     refresh();
     setInterval(refresh, 2500);

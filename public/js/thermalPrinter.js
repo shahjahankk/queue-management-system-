@@ -548,7 +548,7 @@
    * Real PetZone PNG only — never the pink-circle SVG placeholder.
    * Fetches /assets/petzonelogo.png (same file the kiosk <img> shows).
    */
-  async function logoToEscPosRaster(maxWidthDots = 320) {
+  async function logoToEscPosRaster(maxWidthDots = 448) {
     if (typeof window === 'undefined') return null;
     const candidates = [
       '/assets/petzonelogo.png?v=20260805b',
@@ -566,14 +566,14 @@
           continue;
         }
 
-        const targetW = Math.min(maxWidthDots, 360);
+        const targetW = Math.min(maxWidthDots, 448);
         if (w > targetW) {
           h = Math.round((h * targetW) / w);
           w = targetW;
         }
-        if (h > 88) {
-          w = Math.floor((w * 88) / h / 8) * 8;
-          h = 88;
+        if (h > 120) {
+          w = Math.floor((w * 120) / h / 8) * 8;
+          h = 120;
         }
         w = Math.floor(w / 8) * 8;
         if (w < 8) {
@@ -614,21 +614,18 @@
     out.push(...esc(0x1b, 0x61, 0x01));
 
     try {
-      const logo = await logoToEscPosRaster(320);
+      const logo = await logoToEscPosRaster(448);
       if (logo) appendBytes(out, logo);
     } catch (e) {
       console.warn('QMS logo print skipped:', e);
     }
 
     out.push(...esc(0x1b, 0x4d, 0x00)); // Font A
-    out.push(...esc(0x1b, 0x21, 0x18)); // bold + double height
-    out.push(...line('PetZone'));
-    out.push(...esc(0x1b, 0x21, 0x00));
 
     if (serviceName) {
-      out.push(...boldOn());
+      out.push(...esc(0x1b, 0x21, 0x18)); // bold + double height
       out.push(...line(String(serviceName).slice(0, 42)));
-      out.push(...boldOff());
+      out.push(...esc(0x1b, 0x21, 0x00));
     }
 
     out.push(...feed(1));
@@ -638,10 +635,11 @@
     out.push(...boldOff());
     out.push(...esc(0x1d, 0x21, 0x00));
     out.push(...feed(1));
-    out.push(...esc(0x1b, 0x4d, 0x01)); // compact details
+    out.push(...esc(0x1b, 0x4d, 0x00)); // larger Font A details
 
-    if (branchName) out.push(...line(String(branchName).slice(0, 48)));
-    if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 42)}`));
+    out.push(...boldOn());
+    if (branchName) out.push(...line(String(branchName).slice(0, 42)));
+    if (petName) out.push(...line(`Pet: ${String(petName).slice(0, 36)}`));
 
     const ahead = Number(waitingAhead);
     if (Number.isFinite(ahead) && ahead > 0) {
@@ -649,10 +647,13 @@
     } else if (Number.isFinite(ahead) && ahead === 0) {
       out.push(...line('You are next in queue!'));
     }
+    out.push(...boldOff());
 
     const when = issuedAt ? new Date(issuedAt) : new Date();
     out.push(...line(when.toLocaleString()));
+    out.push(...boldOn());
     out.push(...line('Please wait for your number to be called'));
+    out.push(...boldOff());
     out.push(...line('Powered by Tychora'));
     out.push(...esc(0x1b, 0x4d, 0x00));
     appendBytes(out, cutSafe());

@@ -156,16 +156,24 @@ th { font-size: 13px; color: var(--gray-500); text-transform: uppercase; letter-
   background: #fff;
 }
 
+.ticket-slip .ticket-logo {
+  display: block;
+  width: 94%;
+  max-width: 300px;
+  height: auto;
+  margin: 0 auto 14px;
+}
+
 .ticket-slip .ticket-number {
-  font-size: 72px;
+  font-size: 82px;
   font-weight: 900;
   color: var(--blue);
   line-height: 1;
   margin: 16px 0;
 }
 
-.ticket-slip .service-name { font-size: 18px; font-weight: 600; color: var(--gray-700); }
-.ticket-slip .meta { font-size: 13px; color: var(--gray-500); margin-top: 12px; }
+.ticket-slip .service-name { font-size: 22px; font-weight: 900; color: var(--gray-700); }
+.ticket-slip .meta { font-size: 15px; font-weight: 700; color: var(--gray-700); margin-top: 12px; }
 
 @media print {
   @page { size: 80mm auto; margin: 4mm; }
