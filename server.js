@@ -24,10 +24,28 @@ app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
+const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean).length
-    ? (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim())
-    : true,
+  origin(origin, callback) {
+    // Non-browser clients have no Origin. PetZone subdomains are trusted so a
+    // newly deployed POS hostname can use the public queue endpoints without
+    // being blocked by a stale CORS_ORIGIN list.
+    if (
+      !origin ||
+      configuredCorsOrigins.length === 0 ||
+      configuredCorsOrigins.includes(origin) ||
+      /^https:\/\/([a-z0-9-]+\.)*petzone\.pk$/i.test(origin) ||
+      /^http:\/\/localhost(?::\d+)?$/i.test(origin)
+    ) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
   credentials: true,
 }));
 app.use(morgan('dev'));
