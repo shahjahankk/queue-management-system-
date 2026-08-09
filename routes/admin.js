@@ -174,36 +174,42 @@ router.post('/branches', authMiddleware, requireRole('super_admin', 'org_admin')
 router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_admin'), async (req, res) => {
   try {
     const { name, address, phone, is_active, counter_pin, kiosk_pin, display_video_url } = req.body;
-    await executeQuery(
-      `UPDATE qms_branches SET
-        name = COALESCE(?, name),
-        address = COALESCE(?, address),
-        phone = COALESCE(?, phone),
-        is_active = COALESCE(?, is_active)
-      WHERE id = ?`,
-      [name, address, phone, is_active, req.params.id]
-    );
+    const branchId = req.params.id;
+
+    // Only update fields that were actually sent (avoid undefined bind params)
+    const sets = [];
+    const params = [];
+    if (Object.prototype.hasOwnProperty.call(req.body, 'name')) {
+      sets.push('name = ?');
+      params.push(name == null ? null : String(name).trim());
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'address')) {
+      sets.push('address = ?');
+      params.push(address == null || address === '' ? null : String(address).trim());
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'phone')) {
+      sets.push('phone = ?');
+      params.push(phone == null || phone === '' ? null : String(phone).trim());
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'is_active')) {
+      sets.push('is_active = ?');
+      params.push(is_active == null ? null : (is_active ? 1 : 0));
+    }
 
     // Screen PINs: string sets/updates; empty string clears; omit leaves unchanged
     if (Object.prototype.hasOwnProperty.call(req.body, 'counter_pin')) {
       const pin = counter_pin == null ? '' : String(counter_pin).trim().slice(0, 32);
-      await executeQuery(
-        `UPDATE qms_branches SET counter_pin = ? WHERE id = ?`,
-        [pin || null, req.params.id]
-      );
+      sets.push('counter_pin = ?');
+      params.push(pin || null);
     }
     if (Object.prototype.hasOwnProperty.call(req.body, 'kiosk_pin')) {
       const pin = kiosk_pin == null ? '' : String(kiosk_pin).trim().slice(0, 32);
-      await executeQuery(
-        `UPDATE qms_branches SET kiosk_pin = ? WHERE id = ?`,
-        [pin || null, req.params.id]
-      );
+      sets.push('kiosk_pin = ?');
+      params.push(pin || null);
     }
 
-    // TV display video: YouTube URL / ID or direct MP4 URL; empty clears to default on screens
+    // TV display video: YouTube URL / ID or direct MP4 URL; empty clears
     if (Object.prototype.hasOwnProperty.call(req.body, 'display_video_url')) {
-      const url = display_video_url == null ? '' : String(display_video_url).trim().slice(0, 500);
-      // Lazy-ensure column (cPanel deploys without migrations)
       try {
         const cols = await executeQuery(
           `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
@@ -215,11 +221,20 @@ router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_ad
           );
         }
       } catch (_) { /* column may already exist */ }
-      await executeQuery(
-        `UPDATE qms_branches SET display_video_url = ? WHERE id = ?`,
-        [url || null, req.params.id]
-      );
+      const url = display_video_url == null ? '' : String(display_video_url).trim().slice(0, 500);
+      sets.push('display_video_url = ?');
+      params.push(url || null);
     }
+
+    if (!sets.length) {
+      return res.status(400).json({ success: false, message: 'No fields to update' });
+    }
+
+    params.push(branchId);
+    await executeQuery(
+      `UPDATE qms_branches SET ${sets.join(', ')} WHERE id = ?`,
+      params
+    );
 
     res.json({ success: true });
   } catch (err) {
