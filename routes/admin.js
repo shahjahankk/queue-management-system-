@@ -221,7 +221,15 @@ router.patch('/branches/:id', authMiddleware, requireRole('super_admin', 'org_ad
           );
         }
       } catch (_) { /* column may already exist */ }
-      const url = display_video_url == null ? '' : String(display_video_url).trim().slice(0, 500);
+      let url = display_video_url == null ? '' : String(display_video_url).trim().slice(0, 500);
+      // Normalize pasted YouTube links (missing https://, bare ID, etc.)
+      if (url) {
+        if (/^[\w-]{11}$/.test(url)) {
+          url = `https://www.youtube.com/watch?v=${url}`;
+        } else if (!/^https?:\/\//i.test(url) && /(?:youtube\.com|youtu\.be)/i.test(url)) {
+          url = `https://${url.replace(/^\/+/, '')}`;
+        }
+      }
       sets.push('display_video_url = ?');
       params.push(url || null);
     }

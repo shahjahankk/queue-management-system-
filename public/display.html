@@ -420,8 +420,13 @@
 
     function extractYouTubeId(value) {
       if (!value) return null;
-      const raw = String(value).trim();
+      let raw = String(value).trim();
+      if (!raw) return null;
       if (/^[\w-]{11}$/.test(raw)) return raw;
+      // Allow pasted links without https://
+      if (!/^https?:\/\//i.test(raw) && /(?:youtube\.com|youtu\.be)/i.test(raw)) {
+        raw = 'https://' + raw.replace(/^\/+/, '');
+      }
       try {
         const u = new URL(raw);
         if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('/')[0] || null;
@@ -432,6 +437,10 @@
         const shortsIdx = parts.indexOf('shorts');
         if (shortsIdx >= 0 && parts[shortsIdx + 1]) return parts[shortsIdx + 1];
       } catch (_) { /* not a URL */ }
+      const watch = raw.match(/[?&]v=([\w-]{11})/);
+      if (watch) return watch[1];
+      const short = raw.match(/youtu\.be\/([\w-]{11})/);
+      if (short) return short[1];
       return null;
     }
 
