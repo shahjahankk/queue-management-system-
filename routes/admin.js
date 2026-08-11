@@ -388,12 +388,30 @@ router.delete(
          WHERE branch_id = ? AND date_key = ?`,
         [branch.id, dateKey]
       );
+      // Clear clinic chat with the daily queue reset
+      let deletedChat = 0;
+      try {
+        const [chatDel] = await conn.execute(
+          `DELETE FROM qms_chat_messages WHERE branch_id = ?`,
+          [branch.id]
+        );
+        deletedChat = chatDel.affectedRows || 0;
+      } catch (chatErr) {
+        // Table may not exist yet on older installs
+        if (!/doesn't exist|Unknown table/i.test(String(chatErr.message || ''))) {
+          throw chatErr;
+        }
+      }
       await conn.commit();
 
       res.json({
         success: true,
-        message: `${branch.name} reset for all categories. The next token will be 1.`,
-        data: { deleted_tickets: deleted.affectedRows, next_number: 1 },
+        message: `${branch.name} reset for all categories. The next token will be 1. Clinic chat cleared.`,
+        data: {
+          deleted_tickets: deleted.affectedRows,
+          deleted_chat_messages: deletedChat,
+          next_number: 1,
+        },
       });
     } catch (err) {
       await conn.rollback();

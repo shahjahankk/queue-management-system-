@@ -198,8 +198,7 @@ th { font-size: 13px; color: var(--gray-500); text-transform: uppercase; letter-
   .no-print,
   .header,
   #printerBar,
-  #stepSelect,
-  #stepDetails { display: none !important; }
+  #stepSelect { display: none !important; }
   #stepTicket { display: block !important; }
 }
 

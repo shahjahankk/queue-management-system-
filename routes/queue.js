@@ -885,7 +885,20 @@ router.get('/public/:orgSlug/:branchSlug/chat', async (req, res) => {
       rows = latest.reverse();
     }
 
-    res.json({ success: true, data: rows });
+    const maxRows = await executeQuery(
+      `SELECT COALESCE(MAX(id), 0) AS latest_id
+       FROM qms_chat_messages
+       WHERE branch_id = ?`,
+      [branch.id]
+    );
+    const latestId = Number(maxRows[0]?.latest_id || 0);
+
+    res.json({
+      success: true,
+      data: rows,
+      latest_id: latestId,
+      chat_cleared: sinceId > 0 && latestId < sinceId,
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

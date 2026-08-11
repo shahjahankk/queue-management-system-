@@ -366,6 +366,21 @@
       syncChatSenderInputs();
     }
 
+    function formatChatStamp(createdAt) {
+      if (!createdAt) return '';
+      const d = new Date(createdAt);
+      if (Number.isNaN(d.getTime())) return '';
+      const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const today = new Date();
+      const sameDay =
+        d.getFullYear() === today.getFullYear() &&
+        d.getMonth() === today.getMonth() &&
+        d.getDate() === today.getDate();
+      if (sameDay) return time;
+      const date = d.toLocaleDateString([], { day: '2-digit', month: 'short' });
+      return `${date} ${time}`;
+    }
+
     function appendChatMessages(rows, { replace } = {}) {
       const box = document.getElementById('chatMessages');
       if (replace) box.innerHTML = '';
@@ -376,15 +391,13 @@
       if (replace && rows.length) box.innerHTML = '';
       rows.forEach((m) => {
         chatLastId = Math.max(chatLastId, Number(m.id) || 0);
-        const time = m.created_at
-          ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          : '';
+        const time = formatChatStamp(m.created_at);
         const el = document.createElement('div');
         el.style.cssText = 'margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--gray-200);';
         el.innerHTML =
-          '<div style="display:flex;justify-content:space-between;gap:8px;">' +
+          '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">' +
             '<strong style="color:var(--blue);">' + escapeHtml(m.sender_name) + '</strong>' +
-            '<span style="font-size:11px;color:var(--gray-500);">' + escapeHtml(time) + '</span>' +
+            '<span style="font-size:11px;color:var(--gray-500);white-space:nowrap;">' + escapeHtml(time) + '</span>' +
           '</div>' +
           '<div style="margin-top:2px;white-space:pre-wrap;">' + escapeHtml(m.body) + '</div>';
         box.appendChild(el);
@@ -401,8 +414,25 @@
         const json = await res.json();
         if (!json.success) throw new Error(json.message || 'Chat failed');
         const rows = json.data || [];
-        if (initial || !chatLastId) appendChatMessages(rows, { replace: true });
-        else if (rows.length) appendChatMessages(rows);
+        const latestId = Number(json.latest_id || 0);
+        const cleared = Boolean(json.chat_cleared) || (chatLastId > 0 && latestId < chatLastId);
+
+        if (cleared && !initial) {
+          chatLastId = 0;
+          const full = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/chat?limit=50`);
+          const fullJson = await full.json();
+          if (fullJson.success) {
+            chatLastId = Number(fullJson.latest_id || 0);
+            appendChatMessages(fullJson.data || [], { replace: true });
+          } else {
+            appendChatMessages([], { replace: true });
+          }
+        } else if (initial || !chatLastId) {
+          chatLastId = latestId || rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0);
+          appendChatMessages(rows, { replace: true });
+        } else if (rows.length) {
+          appendChatMessages(rows);
+        }
         document.getElementById('chatStatus').textContent = 'Live';
         document.getElementById('chatStatus').style.color = '#15803d';
       } catch (err) {
