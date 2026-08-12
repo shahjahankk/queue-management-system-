@@ -11,7 +11,10 @@
     <div class="card" style="text-align: center;">
       <img src="/assets/petzonelogo.png" alt="PetZone" class="logo-lg" style="margin-bottom: 24px;">
       <h2 style="color: var(--blue); margin-bottom: 8px;">Admin Login</h2>
-      <p style="color: var(--gray-500); margin-bottom: 24px;">PetZone Hospital Queue Management</p>
+          <p style="color: var(--gray-500); margin-bottom: 24px;">PetZone Hospital Queue Management</p>
+          <p style="color: var(--gray-500); font-size: 13px; margin-bottom: 16px;">
+            Opened from PetZone POS? You should sign in automatically.
+          </p>
       <div id="loginAlert" class="alert hidden"></div>
       <div class="form-group" style="text-align: left;">
         <label>Email</label>
@@ -198,7 +201,32 @@
       tab.addEventListener('click', () => showTab(tab.dataset.tab));
     });
 
+    async function exchangeSsoIfPresent() {
+      const params = new URLSearchParams(window.location.search);
+      const sso = params.get('sso');
+      if (!sso) return false;
+      try {
+        document.getElementById('loginAlert').classList.remove('hidden');
+        document.getElementById('loginAlert').textContent = 'Signing you in from PetZone POS…';
+        const res = await api('/api/auth/sso/exchange', {
+          method: 'POST',
+          body: JSON.stringify({ ssoToken: sso }),
+        });
+        setToken(res.token);
+        currentUser = res.user;
+        params.delete('sso');
+        const next = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`;
+        window.history.replaceState({}, '', next);
+        showAdmin();
+        return true;
+      } catch (err) {
+        showAlert(document.getElementById('loginAlert'), err.message || 'SSO login failed');
+        return false;
+      }
+    }
+
     async function checkAuth() {
+      if (await exchangeSsoIfPresent()) return;
       const token = getToken();
       if (!token) return;
       try {
