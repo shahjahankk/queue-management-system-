@@ -10,6 +10,7 @@ let ssoTableReady = false;
 
 async function ensureSsoTable() {
   if (ssoTableReady) return;
+  // No FK — some cPanel MySQL setups reject ADD CONSTRAINT on ensure
   await executeQuery(`
     CREATE TABLE IF NOT EXISTS qms_sso_tokens (
       id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -22,8 +23,7 @@ async function ensureSsoTable() {
       created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uq_qms_sso_token_hash (token_hash),
       KEY idx_qms_sso_expires (expires_at),
-      CONSTRAINT fk_qms_sso_user
-        FOREIGN KEY (user_id) REFERENCES qms_users(id) ON DELETE CASCADE
+      KEY idx_qms_sso_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   ssoTableReady = true;
