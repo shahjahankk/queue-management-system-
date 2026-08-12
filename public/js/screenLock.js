@@ -20,12 +20,41 @@
     } catch (_) { /* ignore */ }
   }
 
+  async function tryPosUnlock(screen, orgSlug, branchSlug) {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const posUnlock = params.get('posUnlock');
+      if (!posUnlock) return false;
+
+      const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/screen-unlock-pos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ screen: screen, token: posUnlock }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) return false;
+
+      markUnlocked(screen, orgSlug, branchSlug);
+      params.delete('posUnlock');
+      const next = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      window.history.replaceState({}, '', next);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /**
    * If PIN required and not unlocked, show overlay and resolve when unlocked.
+   * POS opens with ?posUnlock=... skip the PIN.
    * @returns {Promise<void>}
    */
   async function requireScreenUnlock(screen, orgSlug, branchSlug) {
     const title = screen === 'kiosk' ? 'Take a Ticket' : 'OPD / Counter';
+
+    if (await tryPosUnlock(screen, orgSlug, branchSlug)) return;
+    if (isUnlocked(screen, orgSlug, branchSlug)) return;
+
     let required = false;
     try {
       const res = await fetch(`/api/queue/public/${orgSlug}/${branchSlug}/screen-lock`);
@@ -49,7 +78,7 @@
         '<div style="width:100%;max-width:380px;background:#fff;border-radius:16px;padding:28px 24px;box-shadow:0 20px 50px rgba(0,0,0,.35);">' +
           '<div style="font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#0d9488;margin-bottom:6px;">PetZone Hospital</div>' +
           '<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;">' + title + ' Locked</h2>' +
-          '<p style="margin:0 0 18px;color:#64748b;font-size:14px;line-height:1.4;">Enter the password set in Admin → Branches.</p>' +
+          '<p style="margin:0 0 18px;color:#64748b;font-size:14px;line-height:1.4;">Enter the password set in Admin → Branches. Opening from PetZone POS unlocks automatically.</p>' +
           '<label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:6px;">Password</label>' +
           '<input id="screenLockPin" type="password" autocomplete="current-password" ' +
             'style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:16px;margin-bottom:10px;" />' +

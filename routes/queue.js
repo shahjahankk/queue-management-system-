@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool, executeQuery } = require('../config/database');
 const { authMiddleware } = require('../middleware/auth');
+const { verifyPosScreenUnlockToken } = require('../utils/posScreenUnlock');
 
 const router = express.Router();
 
@@ -1041,6 +1042,36 @@ router.post('/public/:orgSlug/:branchSlug/screen-unlock', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Incorrect password' });
     }
     res.json({ success: true, data: { unlocked: true, required: true } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/** Unlock kiosk/OPD with short-lived POS token (no branch PIN). */
+router.post('/public/:orgSlug/:branchSlug/screen-unlock-pos', async (req, res) => {
+  try {
+    const branch = await getBranchBySlug(req.params.orgSlug, req.params.branchSlug);
+    if (!branch) return res.status(404).json({ success: false, message: 'Branch not found' });
+
+    const screen = String(req.body?.screen || '').toLowerCase();
+    const token = String(req.body?.token || req.body?.posUnlock || '').trim();
+    if (screen !== 'counter' && screen !== 'kiosk') {
+      return res.status(400).json({ success: false, message: 'Invalid screen' });
+    }
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'posUnlock token required' });
+    }
+
+    const checked = verifyPosScreenUnlockToken(token, {
+      screen,
+      orgSlug: req.params.orgSlug,
+      branchSlug: req.params.branchSlug,
+    });
+    if (!checked.ok) {
+      return res.status(401).json({ success: false, message: checked.message });
+    }
+
+    return res.json({ success: true, data: { unlocked: true, via: 'pos' } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

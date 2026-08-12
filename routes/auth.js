@@ -3,6 +3,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { executeQuery } = require('../config/database');
 const { signToken, authMiddleware } = require('../middleware/auth');
+const { mintPosScreenUnlockToken, ssoSecret } = require('../utils/posScreenUnlock');
 
 const router = express.Router();
 
@@ -161,10 +162,7 @@ router.post('/sso/mint', async (req, res) => {
   try {
     await ensureSsoTable();
     const secret = req.headers['x-qms-sso-secret'];
-    const expected =
-      process.env.SSO_SHARED_SECRET ||
-      process.env.QMS_SSO_SECRET ||
-      'petzone-qms-sso-shared-secret';
+    const expected = ssoSecret();
     if (!secret || secret !== expected) {
       return res.status(401).json({ success: false, message: 'Invalid SSO secret' });
     }
@@ -269,6 +267,45 @@ router.post('/sso/exchange', async (req, res) => {
   } catch (err) {
     console.error('QMS SSO exchange error', err);
     return res.status(500).json({ success: false, message: 'SSO exchange failed' });
+  }
+});
+
+router.post('/sso/mint-screen', async (req, res) => {
+  try {
+    const secret = req.headers['x-qms-sso-secret'];
+    if (!secret || secret !== ssoSecret()) {
+      return res.status(401).json({ success: false, message: 'Invalid SSO secret' });
+    }
+
+    const screen = String(req.body?.screen || '').toLowerCase();
+    const orgSlug = String(req.body?.orgSlug || '').trim();
+    const branchSlug = String(req.body?.branchSlug || '').trim();
+    if ((screen !== 'kiosk' && screen !== 'counter') || !orgSlug || !branchSlug) {
+      return res.status(400).json({
+        success: false,
+        message: 'screen (kiosk|counter), orgSlug, and branchSlug required',
+      });
+    }
+
+    const unlockToken = mintPosScreenUnlockToken({ screen, orgSlug, branchSlug });
+    const appUrl = (
+      process.env.QMS_APP_URL ||
+      'https://queue-management.petzone.pk'
+    ).replace(/\/$/, '');
+    const pathPrefix = screen === 'kiosk' ? 'kiosk' : 'opd';
+    const unlockUrl =
+      `${appUrl}/${pathPrefix}/${encodeURIComponent(orgSlug)}/${encodeURIComponent(branchSlug)}` +
+      `?posUnlock=${encodeURIComponent(unlockToken)}`;
+
+    return res.json({
+      success: true,
+      unlockToken,
+      unlockUrl,
+      expiresAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+    });
+  } catch (err) {
+    console.error('QMS screen mint error', err);
+    return res.status(500).json({ success: false, message: err.message || 'Screen unlock mint failed' });
   }
 });
 
