@@ -1038,7 +1038,7 @@
         if (!json.success) return;
 
         const d = json.data;
-        document.getElementById('brandName').innerHTML = `<em>${d.branch?.name || d.branch?.org_name || 'PetZone'}</em>`;
+        document.getElementById('brandName').innerHTML = `<em>${d.branch?.org_name || d.branch?.name || 'PetZone'}</em>`;
         applyVideoSource(d.display_video_url || null);
 
         announceChanges(d.by_counter || []);
