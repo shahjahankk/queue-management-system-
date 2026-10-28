@@ -356,7 +356,7 @@
 
     <header class="topbar">
       <div class="brand-block">
-        <div class="brand-wordmark" id="brandName"><em>PetZone</em> Animal Hospital</div>
+        <div class="brand-wordmark" id="brandName"></div>
         <div class="brand-sub"><span>Compassion · Care · Excellence</span></div>
       </div>
       <div class="top-actions">
@@ -1038,7 +1038,7 @@
         if (!json.success) return;
 
         const d = json.data;
-        document.getElementById('brandName').innerHTML = '<em>PetZone</em> Animal Hospital';
+        document.getElementById('brandName').innerHTML = `<em>${d.branch?.org_name || 'PetZone'}</em> ${d.branch?.name || 'Animal Hospital'}`;
         applyVideoSource(d.display_video_url || null);
 
         announceChanges(d.by_counter || []);
