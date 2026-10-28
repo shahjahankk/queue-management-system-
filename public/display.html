@@ -356,7 +356,7 @@
 
     <header class="topbar">
       <div class="brand-block">
-        <div class="brand-wordmark" id="brandName"></div>
+        <div class="brand-wordmark" id="brandName"><em>PetZone</em></div>
         <div class="brand-sub"><span>Compassion · Care · Excellence</span></div>
       </div>
       <div class="top-actions">
@@ -1038,7 +1038,12 @@
         if (!json.success) return;
 
         const d = json.data;
-        document.getElementById('brandName').innerHTML = `<em>${d.branch?.org_name || d.branch?.name || 'PetZone'}</em>`;
+        try {
+          const branchName = d.branch?.org_name || d.branch?.name || 'PetZone';
+          document.getElementById('brandName').innerHTML = `<em>${branchName}</em>`;
+        } catch (_) {
+          document.getElementById('brandName').innerHTML = '<em>PetZone</em>';
+        }
         applyVideoSource(d.display_video_url || null);
 
         announceChanges(d.by_counter || []);
